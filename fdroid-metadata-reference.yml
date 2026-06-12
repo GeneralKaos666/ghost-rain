@@ -1,16 +1,16 @@
 # Reference: the metadata recipe to submit to F-Droid's `fdroiddata` repo
 # (place as metadata/org.ghostrain.yml in a fdroiddata merge request).
-# Replace YOURUSER with your Codeberg username before submitting.
+# Replace aquarianintel with your Codeberg username before submitting.
 
 Categories:
   - Theming
 License: GPL-3.0-or-later
 AuthorName: Ghost Rain
-SourceCode: https://codeberg.org/YOURUSER/ghost-rain
-IssueTracker: https://codeberg.org/YOURUSER/ghost-rain/issues
+SourceCode: https://codeberg.org/aquarianintel/ghost-rain
+IssueTracker: https://codeberg.org/aquarianintel/ghost-rain/issues
 
 RepoType: git
-Repo: https://codeberg.org/YOURUSER/ghost-rain.git
+Repo: https://codeberg.org/aquarianintel/ghost-rain.git
 
 Builds:
   - versionName: '3.0'
