@@ -5,7 +5,7 @@
 Categories:
   - Theming
 License: GPL-3.0-or-later
-AuthorName: Ghost Rain
+AuthorName: Aquarian Intel
 SourceCode: https://codeberg.org/aquarianintel/ghost-rain
 IssueTracker: https://codeberg.org/aquarianintel/ghost-rain/issues
 
@@ -13,14 +13,14 @@ RepoType: git
 Repo: https://codeberg.org/aquarianintel/ghost-rain.git
 
 Builds:
-  - versionName: '3.0'
-    versionCode: 21
-    commit: v3.0
+  - versionName: '3.1'
+    versionCode: 22
+    commit: v3.1
     subdir: app
     gradle:
       - yes
 
 AutoUpdateMode: Version v%v
 UpdateCheckMode: Tags
-CurrentVersion: '3.0'
-CurrentVersionCode: 21
+CurrentVersion: '3.1'
+CurrentVersionCode: 22

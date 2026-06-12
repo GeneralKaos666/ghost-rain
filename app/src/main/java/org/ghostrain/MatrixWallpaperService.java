@@ -308,11 +308,17 @@ public class MatrixWallpaperService extends WallpaperService {
             }
             if (key.equals("ram")) {
                 try {
-                    ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
-                    ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
-                    am.getMemoryInfo(mi);
-                    long used = mi.totalMem - mi.availMem;
-                    int pct = (int) (used * 100 / Math.max(1, mi.totalMem));
+                    long total, used;
+                    long[] m = memInfo();   // {MemTotal, AnonPages} kB - matches Settings' used
+                    if (m != null) {
+                        total = m[0]; used = m[1];
+                    } else {
+                        ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+                        ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+                        am.getMemoryInfo(mi);
+                        total = mi.totalMem; used = mi.totalMem - mi.availMem;
+                    }
+                    int pct = (int) (used * 100 / Math.max(1, total));
                     return "RAM  " + bar(pct) + " " + pct + "%";
                 } catch (Exception e) { return null; }
             }
@@ -361,6 +367,27 @@ public class MatrixWallpaperService extends WallpaperService {
         }
 
         private long gib(long bytes) { return bytes / (1024L * 1024L * 1024L); }
+
+        /**
+         * {MemTotal, usedKb} from /proc/meminfo. "Used" = AnonPages (anonymous app
+         * memory), which matches the figure Android/GrapheneOS Settings reports as
+         * used (cache + reclaimable count as free). Returns null if unreadable.
+         */
+        private long[] memInfo() {
+            try {
+                RandomAccessFile r = new RandomAccessFile("/proc/meminfo", "r");
+                long total = -1, anon = -1;
+                String line;
+                while ((line = r.readLine()) != null) {
+                    if (line.startsWith("MemTotal:")) total = Long.parseLong(line.replaceAll("[^0-9]", ""));
+                    else if (line.startsWith("AnonPages:")) anon = Long.parseLong(line.replaceAll("[^0-9]", ""));
+                    if (total >= 0 && anon >= 0) break;
+                }
+                r.close();
+                if (total > 0 && anon >= 0) return new long[]{ total, anon };
+            } catch (Exception ignored) { }
+            return null;
+        }
 
         private String uptime() {
             long s = SystemClock.elapsedRealtime() / 1000;
