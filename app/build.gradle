@@ -1,0 +1,33 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'org.ghostrain'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'org.ghostrain'
+        minSdk 26
+        targetSdk 34
+        versionCode 21
+        versionName '3.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // Framework-only app: no dependencies, no AndroidX.
+    dependenciesInfo {
+        includeInApk false
+        includeInBundle false
+    }
+}
