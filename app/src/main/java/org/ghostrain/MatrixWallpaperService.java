@@ -10,6 +10,7 @@ import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Typeface;
+import android.graphics.Color;
 import android.net.ConnectivityManager;
 import android.net.LinkAddress;
 import android.net.LinkProperties;
@@ -76,6 +77,14 @@ public class MatrixWallpaperService extends WallpaperService {
         private float hudPos = 0.5f, hudX = 0.5f, hudScale = 1.0f;            // home
         private float hudPosLock = 0.5f, hudXLock = 0.5f, hudScaleLock = 1.0f; // lock
         private float shimmerP = 0.60f;   // rain shimmer is global (same on both screens)
+        // Rain customization (global, not per-screen)
+        private float rainSpeedMul = 1.0f;
+        private int rainHue = 120;              // default green
+        private float rainFontSizeMul = 1.0f;
+        private boolean glyphKatakana = true, glyphDigits = true, glyphLatin = true, glyphSymbols = true;
+        private int rainMinLen = 6, rainMaxLen = 32;
+        private int frameDelay = 33;             // ms (~30fps)
+        private final float[] hsvTemp = new float[3];
 
         private long lastStats = 0;
         private boolean lastLocked = false;
@@ -86,7 +95,7 @@ public class MatrixWallpaperService extends WallpaperService {
         private final Runnable frame = new Runnable() {
             public void run() {
                 drawFrame();
-                if (visible) handler.postDelayed(this, 33);   // ~30 fps
+                if (visible) handler.postDelayed(this, frameDelay);   // configurable fps
             }
         };
 
@@ -136,17 +145,33 @@ public class MatrixWallpaperService extends WallpaperService {
             hudXLock = prefs.getInt("hudXLock", 50) / 100f;
             hudScaleLock = prefs.getInt("hudScaleLock", 100) / 100f;
             shimmerP = prefs.getInt("shimmer", 60) / 100f;   // 0..1 (100 = every glyph every frame)
+            rainSpeedMul = prefs.getInt("rainSpeed", 100) / 100f;
+            rainHue = Math.max(0, Math.min(360, prefs.getInt("rainHue", 120)));
+            rainFontSizeMul = prefs.getInt("rainFontSize", 100) / 100f;
+            glyphKatakana = prefs.getBoolean("glyphKatakana", true);
+            glyphDigits = prefs.getBoolean("glyphDigits", true);
+            glyphLatin = prefs.getBoolean("glyphLatin", true);
+            glyphSymbols = prefs.getBoolean("glyphSymbols", true);
+            int rawMin = Math.max(1, Math.min(50, prefs.getInt("rainMinLen", 6)));
+            int rawMax = Math.max(1, Math.min(50, prefs.getInt("rainMaxLen", 32)));
+            rainMinLen = Math.min(rawMin, rawMax);
+            rainMaxLen = Math.max(rawMin, rawMax);
+            frameDelay = Math.max(16, Math.min(100, Math.round(1000f / Math.max(10, Math.min(60, prefs.getInt("rainFps", 30))))));
         }
 
         public void onSharedPreferenceChanged(SharedPreferences sp, String key) {
             readPrefs();
+            if ("rainFontSize".equals(key) && w > 0 && h > 0) initColumns();
         }
 
         @Override
         public void onSurfaceChanged(SurfaceHolder holder, int format, int width, int height) {
             super.onSurfaceChanged(holder, format, width, height);
             w = width; h = height;
-            cell = getResources().getDisplayMetrics().density * 13f;
+            initColumns();
+        }
+        private void initColumns() {
+            cell = getResources().getDisplayMetrics().density * 13f * rainFontSizeMul;
             rain.setTextSize(cell * 0.92f);
             cols = Math.max(1, Math.round(w / cell));
             headY = new float[cols];
@@ -158,18 +183,34 @@ public class MatrixWallpaperService extends WallpaperService {
         }
 
         private char randGlyph() {
-            int r = rnd.nextInt(100);
-            if (r < 40) return (char) (0x30A1 + rnd.nextInt(83));   // katakana 40%
-            if (r < 65) return (char) ('0' + rnd.nextInt(10));      // digits 25%
-            if (r < 88) return latin[rnd.nextInt(latin.length)];    // latin 23%
-            return symbols[rnd.nextInt(symbols.length)];            // symbols 12%
+            // Build weighted distribution from enabled glyph types
+            int wKata = glyphKatakana ? 40 : 0;
+            int wDig  = glyphDigits   ? 25 : 0;
+            int wLat  = glyphLatin    ? 23 : 0;
+            int wSym  = glyphSymbols  ? 12 : 0;
+            int total = wKata + wDig + wLat + wSym;
+            if (total == 0) return ' ';   // fallback — nothing enabled
+            int r = rnd.nextInt(total);
+            if (glyphKatakana) {
+                if (r < wKata) return (char) (0x30A1 + rnd.nextInt(83));
+                r -= wKata;
+            }
+            if (glyphDigits) {
+                if (r < wDig) return (char) ('0' + rnd.nextInt(10));
+                r -= wDig;
+            }
+            if (glyphLatin) {
+                if (r < wLat) return latin[rnd.nextInt(latin.length)];
+                r -= wLat;
+            }
+            return symbols[rnd.nextInt(symbols.length)];
         }
 
         private void respawn(int i, boolean initial) {
-            len[i] = 6 + rnd.nextInt(27);
+            len[i] = rainMinLen + rnd.nextInt(rainMaxLen - rainMinLen + 1);
             cellGlyphs[i] = new char[len[i]];
             for (int j = 0; j < len[i]; j++) cellGlyphs[i][j] = randGlyph();
-            speed[i] = h * (0.12f + rnd.nextFloat() * 0.42f);
+            speed[i] = h * (0.12f + rnd.nextFloat() * 0.42f) * rainSpeedMul;
             if (initial) {
                 headY[i] = rnd.nextFloat() * (h + len[i] * cell) - len[i] * cell;
             } else {
@@ -214,6 +255,10 @@ public class MatrixWallpaperService extends WallpaperService {
                 if (c == null) return;
                 c.drawColor(0xFF000000);
                 if (cellGlyphs != null) {
+                    hsvTemp[0] = rainHue;
+                    hsvTemp[1] = 0.30f;
+                    hsvTemp[2] = 1.0f;
+                    int leadColor = Color.HSVToColor(255, hsvTemp);
                     for (int i = 0; i < cols; i++) {
                         headY[i] += speed[i] * dt;                   // FALL
                         if (headY[i] - len[i] * cell > h) respawn(i, false);
@@ -224,12 +269,13 @@ public class MatrixWallpaperService extends WallpaperService {
                             float y = headY[i] - j * cell;
                             if (y < -cell || y > h + cell) continue;
                             if (j == 0) {
-                                rain.setColor(0xFFB4FFC8);
+                                rain.setColor(leadColor);
                             } else {
                                 float t = j / (float) Math.max(len[i] - 1, 1);
-                                int gr = (int) (255 * Math.pow(1 - t, 1.4));
-                                if (gr < 20) gr = 20;
-                                rain.setColor(0xFF000000 | (gr << 8));
+                                hsvTemp[1] = 1.0f;
+                                hsvTemp[2] = (float) Math.pow(1 - t, 1.4);
+                                if (hsvTemp[2] < 0.08f) hsvTemp[2] = 0.08f;
+                                rain.setColor(Color.HSVToColor(255, hsvTemp));
                             }
                             c.drawText(String.valueOf(cellGlyphs[i][j]), x, y, rain);
                         }

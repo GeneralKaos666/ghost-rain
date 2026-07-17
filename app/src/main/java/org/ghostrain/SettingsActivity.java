@@ -169,6 +169,29 @@ public class SettingsActivity extends Activity {
         // --- Config controls (per-screen unless noted) ---
         addCheck(root, "Show HUD overlay", "hud", true, 18);
         addSlider(root, "Glyph shimmer (both screens)", "shimmer", 0, 100, 60, "%", false);
+        // --- Rain customization (global, not per-screen) ---
+        TextView rv = new TextView(this);
+        rv.setText("RAIN CUSTOMIZATION (global, not per-screen)");
+        rv.setTextColor(0xFF00CC44);
+        rv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        rv.setPadding(0, dp(16), 0, dp(4));
+        root.addView(rv, lp());
+        addSlider(root, "Rain speed", "rainSpeed", 10, 300, 100, "%", false);
+        addSlider(root, "Rain color hue", "rainHue", 0, 360, 120, "\u00B0", false);
+        addSlider(root, "Glyph font size", "rainFontSize", 50, 200, 100, "%", false);
+        addSlider(root, "Column min length", "rainMinLen", 1, 50, 6, "", false);
+        addSlider(root, "Column max length", "rainMaxLen", 1, 50, 32, "", false);
+        addSlider(root, "Frame rate", "rainFps", 10, 60, 30, " fps", false);
+        TextView gv = new TextView(this);
+        gv.setText("Glyph set:");
+        gv.setTextColor(0xFF00CC44);
+        gv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        gv.setPadding(0, dp(12), 0, dp(4));
+        root.addView(gv, lp());
+        addCheck(root, "Katakana", "glyphKatakana", false, 15);
+        addCheck(root, "Digits", "glyphDigits", false, 15);
+        addCheck(root, "Latin", "glyphLatin", false, 15);
+        addCheck(root, "Symbols", "glyphSymbols", false, 15);
         addTitleField(root);
         addSlider(root, "Horizontal position", "hudX", 0, 100, 50, "%", true);
         addSlider(root, "Vertical position", "hudPos", 0, 100, 50, "%", true);
