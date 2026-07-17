@@ -13,11 +13,14 @@ screens.
 
 - Stateful falling columns with per-glyph brightness and an instant-swap
   "shimmer" (adjustable rate).
+- **Fully customizable rain**: speed multiplier, color hue (visual picker),
+  glyph font size, column length range, and frame rate — all tunable live.
+- **Toggleable glyph sets**: katakana, digits, Latin letters, and symbols
+  can each be enabled or disabled independently.
 - Balanced katakana / digits / Latin / symbol glyph set over pure black.
 - Optional HUD: custom title, RAM, disk, battery, CPU, IP, uptime — each
   toggleable, freely positioned/sized, with a live preview.
 - Independent **HOME** and **LOCK** configurations; save and apply named layouts.
-- IP address redacted on the lock screen by default (opt-out with a warning).
 
 ## Build
 

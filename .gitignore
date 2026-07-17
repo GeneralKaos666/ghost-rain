@@ -11,3 +11,11 @@
 *.keystore
 .DS_Store
 AGENTS.md
+keystore.properties
+/keystore
+.clang-tidy
+.clangd
+app/keystore
+workspace.json
+gradlew
+gradlew

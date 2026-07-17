@@ -11,7 +11,10 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.LinearGradient;
+import android.graphics.Shader;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -19,6 +22,7 @@ import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.view.MotionEvent;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
@@ -177,7 +181,13 @@ public class SettingsActivity extends Activity {
         rv.setPadding(0, dp(16), 0, dp(4));
         root.addView(rv, lp());
         addSlider(root, "Rain speed", "rainSpeed", 10, 300, 100, "%", false);
-        addSlider(root, "Rain color hue", "rainHue", 0, 360, 120, "\u00B0", false);
+        final TextView hueLabel = new TextView(this);
+        hueLabel.setTextColor(0xFF00CC44);
+        hueLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        hueLabel.setPadding(0, dp(12), 0, dp(4));
+        hueLabel.setText("Rain color hue:  " + p.getInt("rainHue", 120) + "\u00B0");
+        root.addView(hueLabel, lp());
+        root.addView(new HuePicker(this, p.getInt("rainHue", 120), hueLabel), lp());
         addSlider(root, "Glyph font size", "rainFontSize", 50, 200, 100, "%", false);
         addSlider(root, "Column min length", "rainMinLen", 1, 50, 6, "", false);
         addSlider(root, "Column max length", "rainMaxLen", 1, 50, 32, "", false);
@@ -740,6 +750,116 @@ public class SettingsActivity extends Activity {
 
         private float clamp(float v, float lo, float hi) {
             return v < lo ? lo : (v > hi ? hi : v);
+        }
+    }
+    /**
+     * Horizontal hue bar for picking the rain color. Touching or dragging
+     * selects a hue degree (0-360) and persists to "rainHue" in prefs.
+     */
+    private class HuePicker extends View {
+        private int hue;
+        private final Paint barPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint thumbFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint thumbStroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint borderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final TextView label;
+        private int thumbR;
+        private static final int BAR_HEIGHT_DP = 18;
+
+        HuePicker(Context c, int initialHue, TextView labelView) {
+            super(c);
+            hue = Math.max(0, Math.min(360, initialHue));
+            label = labelView;
+            thumbFill.setColor(0xFFFFFFFF);
+            thumbFill.setAntiAlias(true);
+            thumbStroke.setColor(0xFF222222);
+            thumbStroke.setStyle(Paint.Style.STROKE);
+            thumbStroke.setStrokeWidth(dp(1.5f));
+            thumbStroke.setAntiAlias(true);
+            borderPaint.setStyle(Paint.Style.STROKE);
+            borderPaint.setColor(0xFF555555);
+            borderPaint.setStrokeWidth(dp(0.5f));
+            borderPaint.setAntiAlias(true);
+            setFocusable(true);
+            setClickable(true);
+        }
+
+        void setHue(int h) {
+            hue = Math.max(0, Math.min(360, h));
+            invalidate();
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            thumbR = dp(10);
+            int[] colors = new int[7];
+            for (int i = 0; i < 7; i++) {
+                colors[i] = Color.HSVToColor(255, new float[]{i * 60f, 1f, 1f});
+            }
+            float[] pos = {0, 1f / 6f, 2f / 6f, 3f / 6f, 4f / 6f, 5f / 6f, 1f};
+            barPaint.setShader(new LinearGradient(0, 0, w, 0, colors, pos, Shader.TileMode.CLAMP));
+        }
+
+        @Override
+        protected void onMeasure(int ws, int hs) {
+            setMeasuredDimension(MeasureSpec.getSize(ws), dp(44));
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            int w = getWidth();
+            int barH = dp(BAR_HEIGHT_DP);
+            int barTop = (getHeight() - barH) / 2;
+
+            float barL = thumbR + dp(3);
+            float barR = w - thumbR - dp(3);
+            float cy = barTop + barH / 2f;
+
+            // Hue gradient bar
+            c.drawRoundRect(barL, barTop, barR, barTop + barH, dp(4), dp(4), barPaint);
+            c.drawRoundRect(barL, barTop, barR, barTop + barH, dp(4), dp(4), borderPaint);
+
+            // Thumb indicator
+            float thumbCX = barL + (barR - barL) * (hue / 360f);
+            c.drawCircle(thumbCX, cy, thumbR, thumbFill);
+            c.drawCircle(thumbCX, cy, thumbR, thumbStroke);
+
+            // Inner dot showing the selected color
+            Paint dot = new Paint(Paint.ANTI_ALIAS_FLAG);
+            dot.setColor(Color.HSVToColor(255, new float[]{hue, 1f, 1f}));
+            c.drawCircle(thumbCX, cy, thumbR * 0.45f, dot);
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent e) {
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                case MotionEvent.ACTION_MOVE: {
+                    float barL = thumbR + dp(3);
+                    float barR = getWidth() - thumbR - dp(3);
+                    float x = Math.max(barL, Math.min(barR, e.getX()));
+                    int newHue = Math.round(360 * (x - barL) / (barR - barL));
+                    newHue = Math.max(0, Math.min(360, newHue));
+                    if (newHue != hue) {
+                        hue = newHue;
+                        p.edit().putInt("rainHue", hue).apply();
+                        if (label != null) label.setText("Rain color hue:  " + hue + "\u00B0");
+                        invalidate();
+                        updatePreview();
+                    }
+                    return true;
+                }
+                case MotionEvent.ACTION_UP: {
+                    performClick();
+                    return true;
+                }
+            }
+            return super.onTouchEvent(e);
+        }
+
+        @Override
+        public boolean performClick() {
+            return super.performClick();
         }
     }
 }
