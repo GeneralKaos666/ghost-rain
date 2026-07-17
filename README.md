@@ -54,6 +54,8 @@ in your phone's lock-screen / wallpaper settings.
 
 ## Credits & licenses
 
+- **Original author:** [Aquarian Intel](https://codeberg.org/aquarianintel) — Ghost Rain was
+  originally created by Aquarian Intel and is maintained by the community.
 - App code: GPL-3.0-or-later — see [LICENSE](LICENSE).
 - Bundled font **VT323** by Peter Hull, under the SIL Open Font License 1.1 —
   see [app/src/main/assets/OFL.txt](app/src/main/assets/OFL.txt).
