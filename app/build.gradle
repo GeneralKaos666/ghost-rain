@@ -39,22 +39,28 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+def hasReleaseSigning =
+        keystoreProperties['storeFile'] &&
+        keystoreProperties['storePassword'] &&
+        keystoreProperties['keyAlias'] &&
+        keystoreProperties['keyPassword']
+
 android {
     signingConfigs {
         release {
-            def sf = keystoreProperties['storeFile']
-            def sp = keystoreProperties['storePassword']
-            def ka = keystoreProperties['keyAlias']
-            def kp = keystoreProperties['keyPassword']
-            if (sf) storeFile file(sf)
-            if (sp) storePassword sp
-            if (ka) keyAlias ka
-            if (kp) keyPassword kp
+            if (hasReleaseSigning) {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
         }
     }
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
