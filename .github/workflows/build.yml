@@ -2,6 +2,18 @@ name: Build signed release APK
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v3.2)"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark as prerelease"
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -25,7 +37,7 @@ jobs:
           KA: ${{ secrets.KEYSTORE_KEY_ALIAS }}
           KP: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
         run: |
-          echo "$KEYSTORE_B64" | base64 --decode --ignore-garbage > "$RUNNER_TEMP/ghost-rain.jks"
+          printf '%s' "$KEYSTORE_B64" | base64 -d --ignore-garbage > "$RUNNER_TEMP/ghost-rain.jks"
           cat > keystore.properties <<EOF
           storeFile=$RUNNER_TEMP/ghost-rain.jks
           storePassword=$SP
@@ -36,8 +48,12 @@ jobs:
       - name: Build release APK
         run: bash ./gradlew assembleRelease
 
-      - uses: actions/upload-artifact@v4
-        if: success()
-        with:
-          name: ghost-rain-apk
-          path: app/build/outputs/apk/release/app-release.apk
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.tag }}" \
+            --title "${{ inputs.tag }}" \
+            --generate-notes \
+            ${{ inputs.prerelease && '--prerelease' || '' }} \
+            app/build/outputs/apk/release/app-release.apk
