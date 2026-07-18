@@ -668,6 +668,10 @@ public class SettingsActivity extends Activity {
         return Math.round(d * getResources().getDisplayMetrics().density);
     }
 
+    private int dp(float d) {
+        return Math.round(d * getResources().getDisplayMetrics().density);
+    }
+
     private void toast(String s) {
         Toast.makeText(this, s, Toast.LENGTH_SHORT).show();
     }
