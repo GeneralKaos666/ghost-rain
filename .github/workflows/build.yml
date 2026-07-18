@@ -48,6 +48,9 @@ jobs:
       - name: Build release APK
         run: bash ./gradlew assembleRelease
 
+      - name: Verify APK exists
+        run: test -f app/build/outputs/apk/release/app-release.apk
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
