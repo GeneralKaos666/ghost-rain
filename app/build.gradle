@@ -37,26 +37,26 @@ android {
 }
 
 // ACS_SIGNING_CONFIG_START
-def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystorePropertiesFile = rootProject.file("local.properties")
 def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
 def hasReleaseSigning =
-        keystoreProperties['storeFile'] &&
-        keystoreProperties['storePassword'] &&
-        keystoreProperties['keyAlias'] &&
-        keystoreProperties['keyPassword']
+        keystoreProperties['RELEASE_STORE_FILE'] &&
+        keystoreProperties['RELEASE_STORE_PASSWORD'] &&
+        keystoreProperties['RELEASE_KEY_ALIAS'] &&
+        keystoreProperties['RELEASE_KEY_PASSWORD']
 
 android {
     signingConfigs {
         release {
             if (hasReleaseSigning) {
-                storeFile file(keystoreProperties['storeFile'])
-                storePassword keystoreProperties['storePassword']
-                keyAlias keystoreProperties['keyAlias']
-                keyPassword keystoreProperties['keyPassword']
+                storeFile file(keystoreProperties['RELEASE_STORE_FILE'])
+                storePassword keystoreProperties['RELEASE_STORE_PASSWORD']
+                keyAlias keystoreProperties['RELEASE_KEY_ALIAS']
+                keyPassword keystoreProperties['RELEASE_KEY_PASSWORD']
             }
         }
     }

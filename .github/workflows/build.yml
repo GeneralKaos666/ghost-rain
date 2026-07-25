@@ -38,11 +38,11 @@ jobs:
           KP: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
         run: |
           printf '%s' "$KEYSTORE_B64" | base64 -d --ignore-garbage > "$RUNNER_TEMP/ghost-rain.jks"
-          cat > keystore.properties <<EOF
-          storeFile=$RUNNER_TEMP/ghost-rain.jks
-          storePassword=$SP
-          keyAlias=$KA
-          keyPassword=$KP
+          cat > local.properties <<EOF
+          RELEASE_STORE_FILE=$RUNNER_TEMP/ghost-rain.jks
+          RELEASE_STORE_PASSWORD=$SP
+          RELEASE_KEY_ALIAS=$KA
+          RELEASE_KEY_PASSWORD=$KP
           EOF
 
       - name: Build release APK
