@@ -18,6 +18,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
 
     steps:
       - uses: actions/checkout@v4
@@ -40,7 +42,7 @@ jobs:
         run: sed -i '/aapt2FromMavenOverride/d' gradle.properties
 
       - name: Set up keystore for signing
-        if: secrets.KEYSTORE_B64 != ''
+        if: env.KEYSTORE_B64 != ''
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
           SP: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
