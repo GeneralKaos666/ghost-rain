@@ -19,6 +19,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.TypedValue
@@ -115,8 +116,9 @@ class SettingsActivity : Activity() {
             text = "> SET GHOST RAIN WALLPAPER"
             isAllCaps = false
             setOnClickListener {
-                // Record the version we're about to apply; the card clears once the
-                // wallpaper reports as active (see refreshBanner()).
+                // Optimistically record the version being applied: the system picker
+                // gives no completion signal, so a cancelled picker behaves like
+                // tapping "Later" (prompt suppressed until the next version bump).
                 p.edit().putInt("lastAppliedVersion", currentVersionCode()).apply()
                 setWallpaper()
                 refreshBanner()
@@ -735,7 +737,14 @@ class SettingsActivity : Activity() {
         banner.removeAllViews()
         val current = currentVersionCode()
         val active = isOurWallpaperActive()
-        val stored = p.getInt("lastAppliedVersion", -1)
+        var stored = p.getInt("lastAppliedVersion", -1)
+        if (active && stored == -1) {
+            // First launch with the wallpaper already set (upgrade from a build that
+            // predates this tracking, or set via the system picker): assume the
+            // running build is current instead of nagging once for no reason.
+            stored = current
+            p.edit().putInt("lastAppliedVersion", current).apply()
+        }
         val dismissed = p.getInt("updatePromptDismissed", -1)
         when {
             !active -> banner.addView(setupCard())
@@ -919,6 +928,7 @@ class SettingsActivity : Activity() {
         private var lastFontSizeMul = -1f
         private val handler = Handler(Looper.getMainLooper())
         private var animating = false
+        private var lastDraw = 0L
         private val frame = object : Runnable {
             override fun run() {
                 invalidate()
@@ -976,7 +986,10 @@ class SettingsActivity : Activity() {
             if (on == animating) return
             animating = on
             handler.removeCallbacks(frame)
-            if (on) handler.post(frame)
+            if (on) {
+                lastDraw = 0L
+                handler.post(frame)
+            }
         }
 
         override fun onDetachedFromWindow() {
@@ -999,11 +1012,19 @@ class SettingsActivity : Activity() {
             c.drawRect(left, top, left + rw, top + rh, border)
             val rs = rainSettings
             if (rs != null) {
+                // Wall-clock dt (not the nominal frame delay): extra invalidations from
+                // slider drags or scrolling only advance the rain by the time actually
+                // elapsed, so interaction can't speed it up and a delayed frame can't
+                // slow it down. Clamped like the wallpaper engine's dt.
+                val now = SystemClock.uptimeMillis()
+                val dt = if (lastDraw == 0L) rs.frameDelayMs / 1000f
+                        else minOf(0.1f, (now - lastDraw) / 1000f)
+                lastDraw = now
                 val pScale = rw / sw
                 val save = c.save()
                 c.translate(left, top)
                 c.scale(pScale, pScale)
-                rainRenderer.draw(c, rs.frameDelayMs / 1000f, rs)
+                rainRenderer.draw(c, dt, rs)
                 c.restoreToCount(save)
             }
             if (lines.isEmpty()) return
