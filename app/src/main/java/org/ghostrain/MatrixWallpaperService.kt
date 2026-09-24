@@ -10,7 +10,6 @@ import android.content.SharedPreferences
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
-import android.graphics.Color
 import android.net.ConnectivityManager
 import android.net.LinkAddress
 import android.net.LinkProperties
@@ -29,9 +28,6 @@ import java.io.RandomAccessFile
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.Locale
-import java.util.Random
-import kotlin.math.pow
-import kotlin.math.roundToInt
 
 /**
  * GHOST-8 matrix-rain live wallpaper with a single configurable HUD (one config,
@@ -51,22 +47,11 @@ class MatrixWallpaperService : WallpaperService() {
     inner class MatrixEngine : Engine(), SharedPreferences.OnSharedPreferenceChangeListener {
 
         private val handler = Handler(Looper.getMainLooper())
-        private val rnd = Random()
         private var visible = false
         private var w = 0
         private var h = 0
-        private var cols = 0
-        private var cell = 0f
-
-        private lateinit var headY: FloatArray
-        private lateinit var speed: FloatArray
-        private lateinit var len: IntArray
-        private var cellGlyphs: Array<CharArray>? = null
-        private lateinit var latin: CharArray
-        private lateinit var symbols: CharArray
         private var lastFrame = 0L
 
-        private lateinit var rain: Paint
         private lateinit var hudText: Paint
         private lateinit var panel: Paint
         private lateinit var vt: Typeface
@@ -83,19 +68,8 @@ class MatrixWallpaperService : WallpaperService() {
         private var hudPosLock = 0.5f
         private var hudXLock = 0.5f
         private var hudScaleLock = 1.0f        // lock
-        private var shimmerP = 0.60f            // rain shimmer is global (same on both screens)
-        // Rain customization (global, not per-screen)
-        private var rainSpeedMul = 1.0f
-        private var rainHue = 120               // default green
-        private var rainFontSizeMul = 1.0f
-        private var glyphKatakana = true
-        private var glyphDigits = true
-        private var glyphLatin = true
-        private var glyphSymbols = true
-        private var rainMinLen = 6
-        private var rainMaxLen = 32
-        private var frameDelay = 33              // ms (~30fps)
-        private val hsvTemp = FloatArray(3)
+        private lateinit var rainRenderer: RainRenderer
+        private lateinit var rainSettings: RainSettings
 
         private var lastStats = 0L
         private var lastLocked = false
@@ -107,23 +81,18 @@ class MatrixWallpaperService : WallpaperService() {
         private val frame: Runnable = object : Runnable {
             override fun run() {
                 drawFrame()
-                if (visible) handler.postDelayed(this, frameDelay.toLong())
+                if (visible) handler.postDelayed(this, rainSettings.frameDelayMs.toLong())
             }
         }
 
         override fun onCreate(holder: SurfaceHolder) {
             super.onCreate(holder)
-            latin = "ABCDEFGHJKLMNPQRSTUVWXYZ".toCharArray()   // no I/O (look like 1/0)
-            symbols = "+=<>/\\|[]{}#$%&*".toCharArray()
+            rainRenderer = RainRenderer(resources.displayMetrics.density)
 
             vt = try {
                 Typeface.createFromAsset(assets, "VT323-Regular.ttf")
             } catch (_: Exception) {
                 Typeface.MONOSPACE
-            }
-
-            rain = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                typeface = Typeface.MONOSPACE   // fallback covers katakana
             }
 
             hudText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -161,78 +130,19 @@ class MatrixWallpaperService : WallpaperService() {
             hudPosLock = prefs.getInt("hudPosLock", 50) / 100f
             hudXLock = prefs.getInt("hudXLock", 50) / 100f
             hudScaleLock = prefs.getInt("hudScaleLock", 100) / 100f
-            shimmerP = prefs.getInt("shimmer", 60) / 100f   // 0..1 (100 = every glyph every frame)
-            rainSpeedMul = prefs.getInt("rainSpeed", 100) / 100f
-            rainHue = prefs.getInt("rainHue", 120).coerceIn(0, 360)
-            rainFontSizeMul = prefs.getInt("rainFontSize", 100) / 100f
-            glyphKatakana = prefs.getBoolean("glyphKatakana", true)
-            glyphDigits = prefs.getBoolean("glyphDigits", true)
-            glyphLatin = prefs.getBoolean("glyphLatin", true)
-            glyphSymbols = prefs.getBoolean("glyphSymbols", true)
-            val rawMin = prefs.getInt("rainMinLen", 6).coerceIn(1, 50)
-            val rawMax = prefs.getInt("rainMaxLen", 32).coerceIn(1, 50)
-            rainMinLen = minOf(rawMin, rawMax)
-            rainMaxLen = maxOf(rawMin, rawMax)
-            frameDelay = (1000f / prefs.getInt("rainFps", 30).coerceIn(10, 60)).roundToInt().coerceIn(16, 100)
+            rainSettings = RainSettings.fromPrefs(prefs)
         }
 
         override fun onSharedPreferenceChanged(sp: SharedPreferences?, key: String?) {
             readPrefs()
-            if ("rainFontSize" == key && w > 0 && h > 0) initColumns()
+            if ("rainFontSize" == key && w > 0 && h > 0) rainRenderer.resize(w, h, rainSettings)
         }
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             super.onSurfaceChanged(holder, format, width, height)
             w = width
             h = height
-            initColumns()
-        }
-
-        private fun initColumns() {
-            cell = resources.displayMetrics.density * 13f * rainFontSizeMul
-            rain.textSize = cell * 0.92f
-            cols = maxOf(1, (w / cell).roundToInt())
-            headY = FloatArray(cols)
-            speed = FloatArray(cols)
-            len = IntArray(cols)
-            cellGlyphs = Array(cols) { CharArray(0) }
-            for (i in 0 until cols) respawn(i, true)
-            lastFrame = 0
-        }
-
-        private fun randGlyph(): Char {
-            // Build weighted distribution from enabled glyph types
-            val wKata = if (glyphKatakana) 40 else 0
-            val wDig = if (glyphDigits) 25 else 0
-            val wLat = if (glyphLatin) 23 else 0
-            val wSym = if (glyphSymbols) 12 else 0
-            val total = wKata + wDig + wLat + wSym
-            if (total == 0) return ' '   // fallback — nothing enabled
-            var r = rnd.nextInt(total)
-            if (glyphKatakana) {
-                if (r < wKata) return (0x30A1 + rnd.nextInt(83)).toChar()
-                r -= wKata
-            }
-            if (glyphDigits) {
-                if (r < wDig) return ('0'.code + rnd.nextInt(10)).toChar()
-                r -= wDig
-            }
-            if (glyphLatin) {
-                if (r < wLat) return latin[rnd.nextInt(latin.size)]
-                r -= wLat
-            }
-            return symbols[rnd.nextInt(symbols.size)]
-        }
-
-        private fun respawn(i: Int, initial: Boolean) {
-            len[i] = rainMinLen + rnd.nextInt(rainMaxLen - rainMinLen + 1)
-            cellGlyphs!![i] = CharArray(len[i]) { randGlyph() }
-            speed[i] = h * (0.12f + rnd.nextFloat() * 0.42f) * rainSpeedMul
-            headY[i] = if (initial) {
-                rnd.nextFloat() * (h + len[i] * cell) - len[i] * cell
-            } else {
-                -len[i] * cell - if (rnd.nextFloat() < 0.35f) rnd.nextFloat() * h else 0f
-            }
+            rainRenderer.resize(w, h, rainSettings)
         }
 
         override fun onVisibilityChanged(v: Boolean) {
@@ -273,34 +183,7 @@ class MatrixWallpaperService : WallpaperService() {
                 c = holder.lockCanvas()
                 if (c == null) return
                 c.drawColor(0xFF000000.toInt())
-                val glyphs = cellGlyphs
-                if (glyphs != null) {
-                    hsvTemp[0] = rainHue.toFloat()
-                    hsvTemp[1] = 0.30f
-                    hsvTemp[2] = 1.0f
-                    val leadColor = Color.HSVToColor(255, hsvTemp)
-                    for (i in 0 until cols) {
-                        headY[i] += speed[i] * dt                   // FALL
-                        if (headY[i] - len[i] * cell > h) respawn(i, false)
-
-                        val x = i * cell
-                        val columnGlyphs = glyphs[i]
-                        for (j in 0 until columnGlyphs.size) {
-                            if (rnd.nextFloat() < shimmerP) columnGlyphs[j] = randGlyph()  // SHIMMER
-                            val y = headY[i] - j * cell
-                            if (y < -cell || y > h + cell) continue
-                            if (j == 0) {
-                                rain.color = leadColor
-                            } else {
-                                val t = j / maxOf(len[i] - 1, 1).toFloat()
-                                hsvTemp[1] = 1.0f
-                                hsvTemp[2] = maxOf(0.08f, (1 - t).toDouble().pow(1.4).toFloat())
-                                rain.color = Color.HSVToColor(255, hsvTemp)
-                            }
-                            c.drawText(columnGlyphs[j].toString(), x, y, rain)
-                        }
-                    }
-                }
+                rainRenderer.draw(c, dt, rainSettings)
                 val locked = !isPreview && km.isKeyguardLocked()
                 if (locked != lastLocked) {
                     lastStats = 0
@@ -323,7 +206,7 @@ class MatrixWallpaperService : WallpaperService() {
             val uScale = if (locked) hudScaleLock else hudScale
             val uX = if (locked) hudXLock else hudX
             val uPos = if (locked) hudPosLock else hudPos
-            val size = cell * 1.05f * uScale
+            val size = rainRenderer.cell * 1.05f * uScale
             hudText.textSize = size
             hudText.textAlign = Paint.Align.CENTER
             val lh = size * 1.35f
