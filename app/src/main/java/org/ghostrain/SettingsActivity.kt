@@ -71,6 +71,8 @@ class SettingsActivity : Activity() {
     private var currentLayout: String? = null
     private var editingLock = false
     private var suppressRedact = false
+    private var resumed = false
+    private var screenOpen = true
     private val refreshers = mutableListOf<Runnable>()
 
     private fun keyOf(base: String, targetAware: Boolean): String {
@@ -123,7 +125,8 @@ class SettingsActivity : Activity() {
         root.addView(set, lp())
 
         // --- SCREEN: edited screen, live preview, saved layouts ---
-        section(root, "SCREEN (HOME / LOCK)", "screen", true) { c ->
+        section(root, "SCREEN (HOME / LOCK)", "screen", true,
+                onToggle = { open -> screenOpen = open; preview.setAnimating(open && resumed) }) { c ->
             val et = TextView(this).apply {
                 text = "Editing screen:"
                 setTextColor(0xFF00CC44.toInt())
@@ -190,6 +193,7 @@ class SettingsActivity : Activity() {
             }
             c.addView(cap, lp())
         }
+        screenOpen = p.getBoolean("ui_open_screen", true)
 
         // --- HUD (per-screen) ---
         section(root, "HUD", "hud", true, onReset = { confirmResetHud() }) { c ->
@@ -274,9 +278,17 @@ class SettingsActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        resumed = true
         // Re-evaluate the status card: returning from the system wallpaper picker
         // may have changed whether Ghost Rain is the active wallpaper.
         if (::banner.isInitialized) refreshBanner()
+        preview.setAnimating(screenOpen)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        resumed = false
+        preview.setAnimating(false)
     }
 
     private fun setTarget(lock: Boolean) {
@@ -786,7 +798,8 @@ class SettingsActivity : Activity() {
      * [onReset] is provided, a Reset button is shown beside the header.
      */
     private fun section(parent: LinearLayout, title: String, key: String, defaultOpen: Boolean,
-                        onReset: (() -> Unit)? = null, build: (LinearLayout) -> Unit) {
+                        onReset: (() -> Unit)? = null, onToggle: ((Boolean) -> Unit)? = null,
+                        build: (LinearLayout) -> Unit) {
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val open = p.getBoolean("ui_open_$key", defaultOpen)
         content.visibility = if (open) View.VISIBLE else View.GONE
@@ -801,6 +814,7 @@ class SettingsActivity : Activity() {
                 content.visibility = if (nowOpen) View.VISIBLE else View.GONE
                 p.edit().putBoolean("ui_open_$key", nowOpen).apply()
                 text = headerText(title, nowOpen)
+                onToggle?.invoke(nowOpen)
             }
         }
 
@@ -903,6 +917,14 @@ class SettingsActivity : Activity() {
         private val rainRenderer = RainRenderer(resources.displayMetrics.density)
         private var rainSettings: RainSettings? = null
         private var lastFontSizeMul = -1f
+        private val handler = Handler(Looper.getMainLooper())
+        private var animating = false
+        private val frame = object : Runnable {
+            override fun run() {
+                invalidate()
+                if (animating) handler.postDelayed(this, (rainSettings?.frameDelayMs ?: 33).toLong())
+            }
+        }
         private val sw: Int
         private val sh: Int
         private val aspect: Float
@@ -948,6 +970,19 @@ class SettingsActivity : Activity() {
                 rainRenderer.resize(sw, sh, s)
             }
             invalidate()
+        }
+
+        fun setAnimating(on: Boolean) {
+            if (on == animating) return
+            animating = on
+            handler.removeCallbacks(frame)
+            if (on) handler.post(frame)
+        }
+
+        override fun onDetachedFromWindow() {
+            handler.removeCallbacks(frame)
+            animating = false
+            super.onDetachedFromWindow()
         }
 
         override fun onDraw(c: Canvas) {
