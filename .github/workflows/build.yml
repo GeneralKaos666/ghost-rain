@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-            - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: zulu
           java-version: 17
@@ -33,14 +33,14 @@ jobs:
           accept-android-sdk-license: true
           packages: >-
             platform-tools
-            platforms;android-35
-            build-tools;35.0.0
+            platforms;android-34
+            build-tools;34.0.0
 
-      - name: Build release APK
-        run: bash ./gradlew assembleRelease
+      - name: Remove Termux-only aapt2 override
+        run: sed -i '/aapt2FromMavenOverride/d' gradle.properties
 
       - name: Set up keystore for signing
-        if: env.KEYSTORE_B64 != ''
+        if: secrets.KEYSTORE_B64 != ''
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
           SP: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
@@ -55,9 +55,13 @@ jobs:
           RELEASE_KEY_PASSWORD=$KP
           EOF
 
+      - name: Build release APK
+        run: bash ./gradlew assembleRelease
 
       - name: Verify APK exists
-        run: test -f app/build/outputs/apk/release/app-release.apk
+        run: |
+          ls -R app/build/outputs/apk/release/
+          test -f app/build/outputs/apk/release/app-release.apk
 
       - name: Create GitHub Release
         env:
