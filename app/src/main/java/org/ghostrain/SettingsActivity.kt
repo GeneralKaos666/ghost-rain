@@ -15,7 +15,10 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.LinearGradient
 import android.graphics.Shader
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.TypedValue
@@ -58,8 +61,11 @@ class SettingsActivity : Activity() {
 
     private lateinit var p: SharedPreferences
     private lateinit var preview: PreviewView
+    private lateinit var banner: LinearLayout
     private lateinit var elementsBox: LinearLayout
     private lateinit var layoutBtn: Button
+    private lateinit var deleteBtn: Button
+    private lateinit var huePicker: HuePicker
     private lateinit var btnHome: Button
     private lateinit var btnLock: Button
     private var currentLayout: String? = null
@@ -90,18 +96,13 @@ class SettingsActivity : Activity() {
         }
         root.addView(title, lp())
 
-        val banner = TextView(this).apply {
-            text = "SETUP - DO THIS NOW, AND AFTER EVERY APP UPDATE:\n" +
-                    "  1.  Tap  > SET GHOST RAIN WALLPAPER  below\n" +
-                    "  2.  Choose  BOTH  (home + lock screen)\n" +
-                    "The wallpaper will NOT change/update until you re-set it.\n\n" +
-                    "Tip: if the lock-screen clock covers the HUD, set the lock clock size to Small " +
-                    "(in your phone's lock screen / wallpaper settings)."
-            setTextColor(0xFFFFD24D.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-            setBackgroundColor(0xFF241B00.toInt())
-            val bp = dp(12)
-            setPadding(bp, bp, bp, bp)
+        // --- SETUP (always visible) ---
+        // Status card populated by refreshBanner(): setup instructions only until the
+        // wallpaper is actually active, then a one-tap "apply the new build" prompt
+        // after an update. Nothing is shown once the active build matches the installed.
+        sectionHeader(root, "SETUP")
+        banner = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
         }
         root.addView(banner, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -111,125 +112,151 @@ class SettingsActivity : Activity() {
         val set = Button(this).apply {
             text = "> SET GHOST RAIN WALLPAPER"
             isAllCaps = false
-            setOnClickListener { setWallpaper() }
+            setOnClickListener {
+                // Record the version we're about to apply; the card clears once the
+                // wallpaper reports as active (see refreshBanner()).
+                p.edit().putInt("lastAppliedVersion", currentVersionCode()).apply()
+                setWallpaper()
+                refreshBanner()
+            }
         }
         root.addView(set, lp())
 
-        // --- Editing target (HOME / LOCK) ---
-        val et = TextView(this).apply {
-            text = "Editing screen:"
-            setTextColor(0xFF00CC44.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setPadding(0, dp(16), 0, dp(4))
-        }
-        root.addView(et, lp())
-
-        val toggle = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            btnHome = Button(this@SettingsActivity).apply {
-                text = "HOME"
-                isAllCaps = false
-                setOnClickListener { setTarget(false) }
+        // --- SCREEN: edited screen, live preview, saved layouts ---
+        section(root, "SCREEN (HOME / LOCK)", "screen", true) { c ->
+            val et = TextView(this).apply {
+                text = "Editing screen:"
+                setTextColor(0xFF00CC44.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                setPadding(0, dp(8), 0, dp(4))
             }
-            btnLock = Button(this@SettingsActivity).apply {
-                text = "LOCK"
-                isAllCaps = false
-                setOnClickListener { setTarget(true) }
+            c.addView(et, lp())
+
+            val toggle = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                btnHome = Button(this@SettingsActivity).apply {
+                    text = "HOME"
+                    isAllCaps = false
+                    setOnClickListener { setTarget(false) }
+                }
+                btnLock = Button(this@SettingsActivity).apply {
+                    text = "LOCK"
+                    isAllCaps = false
+                    setOnClickListener { setTarget(true) }
+                }
+                addView(btnHome, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(btnLock, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             }
-            addView(btnHome, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(btnLock, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        }
-        root.addView(toggle, lp())
+            c.addView(toggle, lp())
 
-        // --- Preview ---
-        preview = PreviewView(this)
-        root.addView(preview, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(190)).apply {
-            topMargin = dp(10)
-            bottomMargin = dp(4)
-        })
+            preview = PreviewView(this)
+            c.addView(preview, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(190)).apply {
+                topMargin = dp(10)
+                bottomMargin = dp(4)
+            })
 
-        // --- Layouts (apply to the screen being edited) ---
-        val ll = TextView(this).apply {
-            text = "Layouts (apply to edited screen)"
-            setTextColor(0xFF00CC44.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setPadding(0, dp(12), 0, dp(4))
-        }
-        root.addView(ll, lp())
+            val ll = TextView(this).apply {
+                text = "Layouts (apply to edited screen)"
+                setTextColor(0xFF00CC44.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                setPadding(0, dp(12), 0, dp(4))
+            }
+            c.addView(ll, lp())
 
-        layoutBtn = Button(this).apply {
-            isAllCaps = false
-            setOnClickListener { showLayoutPicker() }
-        }
-        root.addView(layoutBtn, lp())
+            layoutBtn = Button(this).apply {
+                isAllCaps = false
+                setOnClickListener { showLayoutPicker() }
+            }
+            c.addView(layoutBtn, lp())
 
-        val btnRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addNav(this, "New") { newLayout() }
-            addNav(this, "Save") { saveDialog() }
-            addNav(this, "Delete") { deleteCurrent() }
-        }
-        root.addView(btnRow, lp())
+            val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            addNav(btnRow, "New") { newLayout() }
+            addNav(btnRow, "Save as\u2026") { saveDialog() }
+            deleteBtn = Button(this).apply {
+                text = "Delete"
+                isAllCaps = false
+                setOnClickListener { deleteCurrent() }
+            }
+            btnRow.addView(deleteBtn,
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            c.addView(btnRow, lp())
 
-        // --- Config controls (per-screen unless noted) ---
-        addCheck(root, "Show HUD overlay", "hud", true, 18)
-        addSlider(root, "Glyph shimmer (both screens)", "shimmer", 0, 100, 60, "%", false)
-        // --- Rain customization (global, not per-screen) ---
-        val rv = TextView(this).apply {
-            text = "RAIN CUSTOMIZATION (global, not per-screen)"
-            setTextColor(0xFF00CC44.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setPadding(0, dp(16), 0, dp(4))
+            val cap = TextView(this).apply {
+                text = "New = fresh config for this screen; Save as\u2026 = store it as a named layout."
+                setTextColor(0xFF338844.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setPadding(0, dp(6), 0, 0)
+            }
+            c.addView(cap, lp())
         }
-        root.addView(rv, lp())
-        addSlider(root, "Rain speed", "rainSpeed", 10, 300, 100, "%", false)
-        val hueLabel = TextView(this).apply {
-            setTextColor(0xFF00CC44.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setPadding(0, dp(12), 0, dp(4))
-            text = "Rain color hue:  ${p.getInt("rainHue", 120)}\u00B0"
-        }
-        root.addView(hueLabel, lp())
-        root.addView(HuePicker(this, p.getInt("rainHue", 120), hueLabel), lp())
-        addSlider(root, "Glyph font size", "rainFontSize", 50, 200, 100, "%", false)
-        addSlider(root, "Column min length", "rainMinLen", 1, 50, 6, "", false)
-        addSlider(root, "Column max length", "rainMaxLen", 1, 50, 32, "", false)
-        addSlider(root, "Frame rate", "rainFps", 10, 60, 30, " fps", false)
-        val gv = TextView(this).apply {
-            text = "Glyph set:"
-            setTextColor(0xFF00CC44.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setPadding(0, dp(12), 0, dp(4))
-        }
-        root.addView(gv, lp())
-        addCheck(root, "Katakana", "glyphKatakana", false, 15)
-        addCheck(root, "Digits", "glyphDigits", false, 15)
-        addCheck(root, "Latin", "glyphLatin", false, 15)
-        addCheck(root, "Symbols", "glyphSymbols", false, 15)
-        addTitleField(root)
-        addSlider(root, "Horizontal position", "hudX", 0, 100, 50, "%", true)
-        addSlider(root, "Vertical position", "hudPos", 0, 100, 50, "%", true)
-        addSlider(root, "Size", "hudScale", 50, 200, 100, "%", true)
 
-        val elv = TextView(this).apply {
-            text = "HUD elements  (check = show, arrows = reorder):"
-            setTextColor(0xFF00CC44.toInt())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-            setPadding(0, dp(16), 0, dp(4))
-        }
-        root.addView(elv, lp())
+        // --- HUD (per-screen) ---
+        section(root, "HUD", "hud", true, onReset = { confirmResetHud() }) { c ->
+            addCheck(c, "Show HUD overlay", "hud", true, 18)
+            addTitleField(c)
+            addSlider(c, "Horizontal position", "hudX", 0, 100, 50, "%", true)
+            addSlider(c, "Vertical position", "hudPos", 0, 100, 50, "%", true)
+            addSlider(c, "Size", "hudScale", 50, 200, 100, "%", true)
 
-        elementsBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        root.addView(elementsBox, lp())
+            val elv = TextView(this).apply {
+                text = "HUD elements  (check = show, arrows = reorder):"
+                setTextColor(0xFF00CC44.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                setPadding(0, dp(16), 0, dp(4))
+            }
+            c.addView(elv, lp())
 
-        addRedactCheck(root)
+            elementsBox = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+            c.addView(elementsBox, lp())
+
+            addRedactCheck(c)
+        }
+
+        // --- RAIN (global, not per-screen) ---
+        section(root, "RAIN (global, not per-screen)", "rain", false,
+                onReset = { confirmResetRain() }) { c ->
+            addSlider(c, "Glyph shimmer (both screens)", "shimmer", 0, 100, 60, "%", false)
+            addSlider(c, "Rain speed", "rainSpeed", 10, 300, 100, "%", false)
+
+            val hueLabel = TextView(this).apply {
+                setTextColor(0xFF00CC44.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                setPadding(0, dp(12), 0, dp(4))
+                text = "Rain color hue:  ${p.getInt("rainHue", 120)}\u00B0"
+            }
+            c.addView(hueLabel, lp())
+            huePicker = HuePicker(this, p.getInt("rainHue", 120), hueLabel)
+            c.addView(huePicker, lp())
+            refreshers.add(Runnable {
+                val h = p.getInt("rainHue", 120)
+                huePicker.setHue(h)
+                hueLabel.text = "Rain color hue:  $h\u00B0"
+            })
+
+            addSlider(c, "Glyph font size", "rainFontSize", 50, 200, 100, "%", false)
+            addSlider(c, "Column min length", "rainMinLen", 1, 50, 6, "", false)
+            addSlider(c, "Column max length", "rainMaxLen", 1, 50, 32, "", false)
+            addSlider(c, "Frame rate", "rainFps", 10, 60, 30, " fps", false)
+
+            val gv = TextView(this).apply {
+                text = "Glyph set:"
+                setTextColor(0xFF00CC44.toInt())
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                setPadding(0, dp(12), 0, dp(4))
+            }
+            c.addView(gv, lp())
+            addCheck(c, "Katakana", "glyphKatakana", false, 15)
+            addCheck(c, "Digits", "glyphDigits", false, 15)
+            addCheck(c, "Latin", "glyphLatin", false, 15)
+            addCheck(c, "Symbols", "glyphSymbols", false, 15)
+        }
 
         val hint = TextView(this).apply {
             text = "Pick HOME or LOCK, build a look (or load a layout), then SET the wallpaper " +
-                    "and choose Both. New = fresh config for this screen."
+                    "and choose Both."
             setTextColor(0xFF338844.toInt())
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             setPadding(0, dp(14), 0, 0)
@@ -243,6 +270,13 @@ class SettingsActivity : Activity() {
 
         setTarget(false)   // styles toggle, refreshes controls + preview
         updateLayoutBtn()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Re-evaluate the status card: returning from the system wallpaper picker
+        // may have changed whether Ghost Rain is the active wallpaper.
+        if (::banner.isInitialized) refreshBanner()
     }
 
     private fun setTarget(lock: Boolean) {
@@ -540,6 +574,7 @@ class SettingsActivity : Activity() {
 
     private fun updateLayoutBtn() {
         layoutBtn.text = currentLayout ?: "(unsaved layout)"
+        if (::deleteBtn.isInitialized) deleteBtn.isEnabled = currentLayout != null
     }
 
     private fun showLayoutPicker() {
@@ -618,6 +653,7 @@ class SettingsActivity : Activity() {
                 p.getInt(keyOf("hudPos", true), 50) / 100f,
                 p.getInt(keyOf("hudScale", true), 100) / 100f,
                 lines.toTypedArray())
+        preview.setRain(RainSettings.fromPrefs(p))
     }
 
     private fun sampleLine(key: String): String? {
@@ -656,6 +692,191 @@ class SettingsActivity : Activity() {
         }
     }
 
+    // --- status / update card ------------------------------------------------
+
+    /** True when Ghost Rain is the live wallpaper currently set on the home screen. */
+    private fun isOurWallpaperActive(): Boolean {
+        return try {
+            val info = WallpaperManager.getInstance(this).wallpaperInfo
+            info?.component == ComponentName(this, MatrixWallpaperService::class.java)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Installed versionCode; works on API 26-27 without the longVersionCode field. */
+    private fun currentVersionCode(): Int {
+        return try {
+            val pi = packageManager.getPackageInfo(packageName, 0)
+            if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode.toInt()
+            else @Suppress("DEPRECATION") pi.versionCode
+        } catch (_: Exception) { 0 }
+    }
+
+    /**
+     * Decide what (if anything) the status card shows:
+     *  - wallpaper not set  -> setup instructions
+     *  - set + version changed (and not dismissed) -> one-tap "apply new build"
+     *  - set + version matches -> nothing
+     */
+    private fun refreshBanner() {
+        banner.removeAllViews()
+        val current = currentVersionCode()
+        val active = isOurWallpaperActive()
+        val stored = p.getInt("lastAppliedVersion", -1)
+        val dismissed = p.getInt("updatePromptDismissed", -1)
+        when {
+            !active -> banner.addView(setupCard())
+            stored != current && dismissed != current -> banner.addView(updateCard(current))
+        }
+    }
+
+    private fun setupCard(): View {
+        return card(
+                "SETUP - DO THIS NOW:\n" +
+                "  1.  Tap  > SET GHOST RAIN WALLPAPER  below\n" +
+                "  2.  Choose  BOTH  (home + lock screen)\n\n" +
+                "Tip: if the lock-screen clock covers the HUD, set the lock clock size to Small " +
+                "(in your phone's lock screen / wallpaper settings).")
+    }
+
+    private fun updateCard(current: Int): View {
+        val c = card(
+                "Updated to version $current - apply the new build:\n" +
+                "Tap  > SET GHOST RAIN WALLPAPER  below, then choose BOTH.")
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        addNav(row, "Later") {
+            p.edit().putInt("updatePromptDismissed", current).apply()
+            refreshBanner()
+        }
+        c.addView(row, lp())
+        return c
+    }
+
+    private fun card(text: String): LinearLayout {
+        val bp = dp(12)
+        val tv = TextView(this).apply {
+            this.text = text
+            setTextColor(0xFFFFD24D.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xFF241B00.toInt())
+            setPadding(bp, bp, bp, bp)
+            addView(tv, lp())
+        }
+    }
+
+    // --- collapsible sections -------------------------------------------------
+
+    /** Non-collapsible section header (used for the always-visible SETUP block). */
+    private fun sectionHeader(parent: LinearLayout, title: String) {
+        parent.addView(TextView(this).apply {
+            text = title
+            setTextColor(0xFF00CC44.toInt())
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setPadding(0, dp(8), 0, dp(4))
+        }, lp())
+    }
+
+    /**
+     * Adds a collapsible section to [parent]. The header toggles the content and
+     * remembers its open/closed state in the app-level `ui_open_<key>` pref. When
+     * [onReset] is provided, a Reset button is shown beside the header.
+     */
+    private fun section(parent: LinearLayout, title: String, key: String, defaultOpen: Boolean,
+                        onReset: (() -> Unit)? = null, build: (LinearLayout) -> Unit) {
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val open = p.getBoolean("ui_open_$key", defaultOpen)
+        content.visibility = if (open) View.VISIBLE else View.GONE
+
+        val header = Button(this).apply {
+            text = headerText(title, open)
+            isAllCaps = false
+            gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+            setTextColor(0xFF00CC44.toInt())
+            setOnClickListener {
+                val nowOpen = content.visibility != View.VISIBLE
+                content.visibility = if (nowOpen) View.VISIBLE else View.GONE
+                p.edit().putBoolean("ui_open_$key", nowOpen).apply()
+                text = headerText(title, nowOpen)
+            }
+        }
+
+        val headerRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        headerRow.addView(header,
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val reset = onReset
+        if (reset != null) {
+            headerRow.addView(Button(this).apply {
+                text = "Reset"
+                isAllCaps = false
+                setOnClickListener { reset() }
+            }, LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        parent.addView(headerRow, lp())
+        parent.addView(content, lp())
+        build(content)
+    }
+
+    private fun headerText(title: String, open: Boolean): String =
+            (if (open) "\u25BE  " else "\u25B8  ") + title
+
+    // --- reset to defaults ----------------------------------------------------
+
+    private fun confirmResetHud() {
+        val screen = if (editingLock) "LOCK" else "HOME"
+        AlertDialog.Builder(this)
+                .setTitle("Reset $screen HUD to defaults?")
+                .setMessage("Restores position, size, title and element visibility for the "
+                        + "$screen screen.")
+                .setPositiveButton("Reset") { _, _ -> resetHud() }
+                .setNegativeButton("Cancel", null)
+                .show()
+    }
+
+    private fun resetHud() {
+        val e = p.edit()
+        for (k in L_BOOL) e.putBoolean(keyOf(k, true), true)
+        for (i in L_INT.indices) e.putInt(keyOf(L_INT[i], true), L_INT_DEF[i])
+        e.putString(keyOf("title", true), "KEEP//HUD")
+        e.apply()
+        currentLayout = null
+        refreshAll()
+        updateLayoutBtn()
+        toast("HUD reset to defaults")
+    }
+
+    private fun confirmResetRain() {
+        AlertDialog.Builder(this)
+                .setTitle("Reset rain to defaults?")
+                .setMessage("Restores speed, color, glyph sets, column length and frame rate "
+                        + "(applies to both screens).")
+                .setPositiveButton("Reset") { _, _ -> resetRain() }
+                .setNegativeButton("Cancel", null)
+                .show()
+    }
+
+    private fun resetRain() {
+        p.edit()
+                .putInt("shimmer", 60)
+                .putInt("rainSpeed", 100)
+                .putInt("rainHue", 120)
+                .putInt("rainFontSize", 100)
+                .putInt("rainMinLen", 6)
+                .putInt("rainMaxLen", 32)
+                .putInt("rainFps", 30)
+                .putBoolean("glyphKatakana", true)
+                .putBoolean("glyphDigits", true)
+                .putBoolean("glyphLatin", true)
+                .putBoolean("glyphSymbols", true)
+                .apply()
+        refreshAll()
+        toast("Rain reset to defaults")
+    }
+
     private fun lp(): LinearLayout.LayoutParams {
         return LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -679,6 +900,9 @@ class SettingsActivity : Activity() {
         private var py = 0.5f
         private var scale = 1f
         private var lines = emptyArray<String>()
+        private val rainRenderer = RainRenderer(resources.displayMetrics.density)
+        private var rainSettings: RainSettings? = null
+        private var lastFontSizeMul = -1f
         private val sw: Int
         private val sh: Int
         private val aspect: Float
@@ -717,6 +941,15 @@ class SettingsActivity : Activity() {
             invalidate()
         }
 
+        fun setRain(s: RainSettings) {
+            rainSettings = s
+            if (s.fontSizeMul != lastFontSizeMul) {
+                lastFontSizeMul = s.fontSizeMul
+                rainRenderer.resize(sw, sh, s)
+            }
+            invalidate()
+        }
+
         override fun onDraw(c: Canvas) {
             val vw = width
             val vh = height
@@ -729,6 +962,15 @@ class SettingsActivity : Activity() {
             val top = (vh - rh) / 2f
             c.drawRect(left, top, left + rw, top + rh, screen)
             c.drawRect(left, top, left + rw, top + rh, border)
+            val rs = rainSettings
+            if (rs != null) {
+                val pScale = rw / sw
+                val save = c.save()
+                c.translate(left, top)
+                c.scale(pScale, pScale)
+                rainRenderer.draw(c, rs.frameDelayMs / 1000f, rs)
+                c.restoreToCount(save)
+            }
             if (lines.isEmpty()) return
 
             val density = resources.displayMetrics.density
