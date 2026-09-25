@@ -36,33 +36,70 @@ android {
     }
 }
 
-// ACS_SIGNING_CONFIG_START
+// Automatic release signing: real credentials first, generated dev key fallback.
+// - Real key: RELEASE_STORE_FILE / RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS /
+//   RELEASE_KEY_PASSWORD from local.properties (gitignored), else same-named env vars.
+//   CI writes local.properties from secrets, so it keeps using the real key.
+// - Fallback: a persistent local dev keystore is generated once under /keystore
+//   (gitignored) and reused, so release builds are always signed with zero setup.
+//   Dev-signed APKs cannot update a store-published install (signature mismatch).
 def keystorePropertiesFile = rootProject.file("local.properties")
 def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+def releaseStoreFile = keystoreProperties['RELEASE_STORE_FILE'] ?: System.getenv('RELEASE_STORE_FILE')
+def releaseStorePassword = keystoreProperties['RELEASE_STORE_PASSWORD'] ?: System.getenv('RELEASE_STORE_PASSWORD')
+def releaseKeyAlias = keystoreProperties['RELEASE_KEY_ALIAS'] ?: System.getenv('RELEASE_KEY_ALIAS')
+def releaseKeyPassword = keystoreProperties['RELEASE_KEY_PASSWORD'] ?: System.getenv('RELEASE_KEY_PASSWORD')
+
 def hasReleaseSigning =
-        keystoreProperties['RELEASE_STORE_FILE'] &&
-        keystoreProperties['RELEASE_STORE_PASSWORD'] &&
-        keystoreProperties['RELEASE_KEY_ALIAS'] &&
-        keystoreProperties['RELEASE_KEY_PASSWORD']
+        releaseStoreFile &&
+        releaseStorePassword &&
+        releaseKeyAlias &&
+        releaseKeyPassword
+
+def devKeystoreFile = rootProject.file("keystore/dev-release.jks")
+if (!hasReleaseSigning && !devKeystoreFile.exists()) {
+    try {
+        devKeystoreFile.parentFile.mkdirs()
+        exec {
+            commandLine("keytool", "-genkeypair",
+                    "-keystore", devKeystoreFile.absolutePath,
+                    "-storepass", "ghostrain-dev",
+                    "-keypass", "ghostrain-dev",
+                    "-alias", "ghostrain-dev",
+                    "-keyalg", "RSA", "-keysize", "2048", "-validity", "10950",
+                    "-dname", "CN=Ghost Rain Dev, OU=Dev, O=Ghost Rain, L=Local, ST=Local, C=US")
+        }
+        logger.lifecycle("Generated dev release keystore at ${devKeystoreFile}.")
+    } catch (Exception e) {
+        logger.warn("Dev release keystore could not be generated (${e.message}); release APK will be unsigned.")
+    }
+}
 
 android {
     signingConfigs {
         release {
             if (hasReleaseSigning) {
-                storeFile file(keystoreProperties['RELEASE_STORE_FILE'])
-                storePassword keystoreProperties['RELEASE_STORE_PASSWORD']
-                keyAlias keystoreProperties['RELEASE_KEY_ALIAS']
-                keyPassword keystoreProperties['RELEASE_KEY_PASSWORD']
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+                logger.lifecycle("Signing release build with configured key.")
+            } else if (devKeystoreFile.exists()) {
+                storeFile devKeystoreFile
+                storePassword "ghostrain-dev"
+                keyAlias "ghostrain-dev"
+                keyPassword "ghostrain-dev"
+                logger.lifecycle("Signing release build with local dev key (not the published app signature).")
             }
         }
     }
     buildTypes {
         release {
-            if (hasReleaseSigning) {
+            if (hasReleaseSigning || devKeystoreFile.exists()) {
                 signingConfig signingConfigs.release
             }
         }
