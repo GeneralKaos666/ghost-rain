@@ -38,8 +38,6 @@ import java.util.Locale
  * unlocked); in the wallpaper-picker preview (isPreview()) it shows the IP so the
  * preview reflects what you built.
  */
-private const val DEFAULT_ORDER = "title,ram,disk,bat,cpu,net,up"
-
 class MatrixWallpaperService : WallpaperService() {
 
     override fun onCreateEngine(): Engine = MatrixEngine()
@@ -234,30 +232,24 @@ class MatrixWallpaperService : WallpaperService() {
 
 
         private fun orderKeys(): Array<String> {
-            val keys = mutableListOf<String>()
-            for (k in prefs.getString("order", DEFAULT_ORDER)!!.split(",")) {
-                val tk = k.trim()
-                if (tk.isNotEmpty() && tk !in keys) keys.add(tk)
-            }
-            for (k in DEFAULT_ORDER.split(",")) if (k !in keys) keys.add(k)
-            return keys.toTypedArray()
+            // Single-sourced in HudPrefs (Task 2); toTypedArray keeps call sites unchanged.
+            return HudPrefs.orderKeys(prefs.getString("order", HudPrefs.DEFAULT_ORDER)).toTypedArray()
         }
 
         private fun gatherStats(locked: Boolean): Array<String> {
-            val suf = if (locked) "Lock" else ""
             val l = mutableListOf<String>()
             for (key in orderKeys()) {
                 if (!elOn(key, locked)) continue
-                val line = lineFor(key, locked, suf)
+                val line = lineFor(key, locked)
                 if (line != null) l.add(line)
             }
             return l.toTypedArray()
         }
 
-        private fun lineFor(key: String, locked: Boolean, suf: String): String? {
+        private fun lineFor(key: String, locked: Boolean): String? {
             return when (key) {
                 "title" -> {
-                    val tt = prefs.getString("title$suf", "KEEP//HUD")
+                    val tt = prefs.getString(HudPrefs.keyOf("title", locked), "KEEP//HUD")
                     if (tt!!.isNotEmpty()) tt else null
                 }
                 "ram" -> {
@@ -304,7 +296,7 @@ class MatrixWallpaperService : WallpaperService() {
                 }
                 "cpu" -> cpu()
                 "net" -> {
-                    if (locked && prefs.getBoolean("redactIp$suf", true)) "NET  [locked]"
+                    if (locked && prefs.getBoolean(HudPrefs.keyOf("redactIp", locked), true)) "NET  [locked]"
                     else {
                         val ip = ip()
                         "NET  ${ip ?: "--"}"
@@ -316,7 +308,7 @@ class MatrixWallpaperService : WallpaperService() {
         }
 
         private fun elOn(name: String, locked: Boolean): Boolean {
-            return prefs.getBoolean("el_$name" + if (locked) "Lock" else "", true)
+            return prefs.getBoolean(HudPrefs.keyOf("el_$name", locked), true)
         }
 
         private fun bar(pct: Int): String {

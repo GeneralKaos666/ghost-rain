@@ -35,6 +35,11 @@ android {
     }
 }
 
+dependencies {
+    // JVM unit tests (Task 2: pure-JVM prefs logic, no Android framework).
+    testImplementation(libs.junit)
+}
+
 // Built-in Kotlin (AGP 9+) defaults jvmTarget from compileOptions.targetCompatibility;
 // pin it explicitly to preserve the old kotlinOptions behavior.
 kotlin {

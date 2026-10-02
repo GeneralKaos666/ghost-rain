@@ -57,7 +57,6 @@ class SettingsActivity : Activity() {
         )
         private val L_INT = arrayOf("hudX", "hudPos", "hudScale")
         private val L_INT_DEF = intArrayOf(50, 50, 100)
-        private const val DEF_ORDER = "title,ram,disk,bat,cpu,net,up"
     }
 
     private lateinit var p: SharedPreferences
@@ -77,7 +76,9 @@ class SettingsActivity : Activity() {
     private val refreshers = mutableListOf<Runnable>()
 
     private fun keyOf(base: String, targetAware: Boolean): String {
-        return if (targetAware && editingLock) base + "Lock" else base
+        // Single-sourced in HudPrefs (Task 2); identical truth table:
+        // per-screen keys take the `Lock` suffix only when editing LOCK.
+        return if (targetAware) HudPrefs.keyOf(base, editingLock) else base
     }
 
     override fun onCreate(s: Bundle?) {
@@ -453,13 +454,8 @@ class SettingsActivity : Activity() {
     }
 
     private fun orderKeys(): Array<String> {
-        val keys = mutableListOf<String>()
-        for (k in p.getString("order", DEF_ORDER)!!.split(",")) {
-            val tk = k.trim()
-            if (tk.isNotEmpty() && tk !in keys) keys.add(tk)
-        }
-        for (k in DEF_ORDER.split(",")) if (k !in keys) keys.add(k)
-        return keys.toTypedArray()
+        // Single-sourced in HudPrefs (Task 2); toTypedArray keeps call sites unchanged.
+        return HudPrefs.orderKeys(p.getString("order", HudPrefs.DEFAULT_ORDER)).toTypedArray()
     }
 
     private fun labelFor(key: String): String {
