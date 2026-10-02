@@ -81,7 +81,7 @@ fun PreviewBridge(
         RainPreview(
                 animating = animating,
                 snapshotVersion = snapshotVersion,
-                modifier = Modifier.fillMaxWidth().height(190.dp)
+                modifier = Modifier.fillMaxWidth().height(400.dp)
         )
     }
 }

@@ -211,7 +211,6 @@ private fun DetailScreen(content: @Composable ColumnScope.() -> Unit) {
     Column(
             modifier = Modifier.fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 8.dp)
     ) {
         content()
     }
@@ -229,12 +228,13 @@ private fun MainScreen(
 ) {
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         SetupCard(prefsTick, resumed, onChanged = onChanged)
+        PreviewBridge(
+                animating = resumed,
+                snapshotVersion = prefsTick,
+                modifier = Modifier
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-            PreviewBridge(
-                    animating = resumed,
-                    snapshotVersion = prefsTick
-            )
-            Spacer(modifier = Modifier.height(8.dp))
             LayoutsRow(
                     onChanged = onChanged,
                     currentLayout = currentLayout,
@@ -411,9 +411,11 @@ private fun HudSection(
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         PreviewBridge(
                 animating = animating,
-                snapshotVersion = snapshotVersion
+                snapshotVersion = snapshotVersion,
+                modifier = Modifier
         )
         Spacer(modifier = Modifier.height(8.dp))
+        Column(modifier = Modifier.padding(horizontal = 8.dp)) {
         DetailHeader(
                 title = "HUD",
                 resetDescription = "Reset HUD to defaults",
@@ -553,6 +555,7 @@ private fun HudSection(
                     }
             )
         }
+        }
     }
 
     if (showRedactConfirm) {
@@ -685,9 +688,11 @@ private fun RainSection(
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         PreviewBridge(
                 animating = animating,
-                snapshotVersion = snapshotVersion
+                snapshotVersion = snapshotVersion,
+                modifier = Modifier
         )
         Spacer(modifier = Modifier.height(8.dp))
+        Column(modifier = Modifier.padding(horizontal = 8.dp)) {
         DetailHeader(
                 title = "Rain (global)",
                 resetDescription = "Reset rain to defaults",
@@ -804,6 +809,7 @@ private fun RainSection(
                         }
                 )
             }
+        }
         }
     }
 
