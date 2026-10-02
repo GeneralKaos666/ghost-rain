@@ -12,4 +12,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "Ghost Rain"
-include ':app'
+include(":app")

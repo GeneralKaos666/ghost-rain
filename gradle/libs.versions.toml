@@ -1,0 +1,32 @@
+[versions]
+# Floors per plan (Task 1 ambiguity resolution): AGP 9.x stable, Gradle 8.10+,
+# Kotlin 2.2.x, Compose BOM 2026.08.00. Resolved 2026-10-02; see task-1-report.
+agp = "9.4.1"
+kotlin = "2.2.21"
+composeBom = "2026.08.00"
+activityCompose = "1.13.0"
+activityKtx = "1.13.0"
+coreKtx = "1.19.1"
+junit = "4.13.2"
+
+[libraries]
+# AndroidX host deps (Tasks 3-6: ComponentActivity, edge-to-edge)
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-activity-ktx = { group = "androidx.activity", name = "activity-ktx", version.ref = "activityKtx" }
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+# Compose UI (Tasks 3-6; versions managed by the BOM)
+compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
+compose-material3 = { group = "androidx.compose.material3", name = "material3-android" }
+compose-runtime = { group = "androidx.compose.runtime", name = "runtime" }
+compose-ui = { group = "androidx.compose.ui", name = "ui" }
+compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+# JVM unit tests (Task 2)
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+# Pinned KGP for AGP 9 built-in Kotlin (runtime upgrade mechanism)
+kotlin-gradle-plugin = { group = "org.jetbrains.kotlin", name = "kotlin-gradle-plugin", version.ref = "kotlin" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
