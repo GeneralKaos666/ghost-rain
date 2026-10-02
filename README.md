@@ -2,8 +2,8 @@
 
 A digital-rain (matrix-style) **live wallpaper** for Android with an optional,
 fully configurable **system HUD** — RAM, disk, battery, CPU, IP and uptime —
-that you can position, size, and curate independently for your home and lock
-screens.
+that you can position, size, and curate under one shared config for your home
+and lock screens.
 
 - **Private by design:** no internet permission, no trackers, no analytics.
 - **Small footprint:** AndroidX + Jetpack Compose (Material 3) Settings UI over a
@@ -20,7 +20,8 @@ screens.
   can each be enabled or disabled independently.
 - Balanced katakana / digits / Latin / symbol glyph set over pure black.
 - Optional HUD: custom title, RAM, disk, battery, CPU, IP, uptime — each
-  toggleable, freely positioned/sized, with a live preview.
+  toggleable, freely positioned/sized, with a live preview on every settings
+  screen (home, HUD, rain).
 
 ## Screenshots
 
@@ -44,7 +45,7 @@ Standard Gradle Android project:
 ```
 
 Requirements: JDK 17, Android SDK (compileSdk 37, targetSdk 35). minSdk 26.
-Unit tests: `./gradlew testDebugUnitTest`.
+Unit tests: `./gradlew :app:testDebugUnitTest`.
 
 ## Setup (in the app)
 
