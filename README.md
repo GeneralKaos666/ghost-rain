@@ -24,15 +24,11 @@ screens.
 
 ## Screenshots
 
-> Note: these shots predate the Compose/Material 3 Settings rewrite — the rain
-> and HUD look the same, but the Settings screens now use Material You. No fresh
-> screenshots are available in this environment yet.
-
 <table>
   <tr>
-    <td><img src="fastlane/metadata/android/en-US/phoneScreenshots/Ghost-rain.jpg" width="200" alt="Rain with HUD"></td>
-    <td><img src="fastlane/metadata/android/en-US/phoneScreenshots/Ghost-rain2.jpg" width="200" alt="Settings — HUD section"></td>
-    <td><img src="fastlane/metadata/android/en-US/phoneScreenshots/Ghost-rain3.jpg" width="200" alt="Settings — rain section"></td>
+    <td><img src="fastlane/metadata/android/en-US/phoneScreenshots/Ghost-rain.png" width="200" alt="Setup + live preview"></td>
+    <td><img src="fastlane/metadata/android/en-US/phoneScreenshots/Ghost-rain2.png" width="200" alt="Settings — HUD section"></td>
+    <td><img src="fastlane/metadata/android/en-US/phoneScreenshots/Ghost-rain3.png" width="200" alt="Settings — rain section"></td>
   </tr>
 </table>
 
