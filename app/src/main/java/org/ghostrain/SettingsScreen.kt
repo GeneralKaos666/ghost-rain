@@ -751,7 +751,7 @@ private fun RainSection(
         Text("Rain color hue:  $hue\u00B0")
         AndroidView(
                 factory = { ctx ->
-                    activity.HuePicker(ctx, hue, null).apply {
+                    activity.HuePicker(ctx, hue, null, onHue = onChanged).apply {
                         contentDescription = "Rain color hue picker, $hue degrees"
                     }
                 },

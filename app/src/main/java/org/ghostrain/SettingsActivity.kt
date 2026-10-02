@@ -214,9 +214,17 @@ class SettingsActivity : ComponentActivity() {
 
     /**
      * Horizontal hue bar for picking the rain color. Touching or dragging
-     * selects a hue degree (0-360) and persists to "rainHue" in prefs.
+     * selects a hue degree (0-360) and persists to "rainHue" in prefs, then
+     * fires [onHue] so the Compose host refreshes the preview through the
+     * same `onChanged` path as the sliders (the prefs listener would also
+     * catch the write; the explicit callback keeps the refresh unconditional).
      */
-    inner class HuePicker(ctx: Context, initialHue: Int, private val label: TextView?) : View(ctx) {
+    inner class HuePicker(
+            ctx: Context,
+            initialHue: Int,
+            private val label: TextView?,
+            private val onHue: (() -> Unit)? = null
+    ) : View(ctx) {
         private var hue = initialHue.coerceIn(0, 360)
         private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val thumbFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -296,6 +304,7 @@ class SettingsActivity : ComponentActivity() {
                         label?.text = "Rain color hue:  $hue\u00B0"
                         invalidate()
                         updatePreview()
+                        onHue?.invoke()
                     }
                     return true
                 }
