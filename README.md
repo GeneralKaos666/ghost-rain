@@ -6,7 +6,8 @@ that you can position, size, and curate independently for your home and lock
 screens.
 
 - **Private by design:** no internet permission, no trackers, no analytics.
-- **Framework-only:** no third-party dependencies, no AndroidX.
+- **Small footprint:** AndroidX + Jetpack Compose (Material 3) Settings UI over a
+  framework `Canvas` wallpaper engine — no other third-party dependencies.
 - **License:** GPL-3.0-or-later.
 
 ## Features
@@ -23,6 +24,10 @@ screens.
 
 ## Screenshots
 
+> Note: these shots predate the Compose/Material 3 Settings rewrite — the rain
+> and HUD look the same, but the Settings screens now use Material You. No fresh
+> screenshots are available in this environment yet.
+
 <table>
   <tr>
     <td><img src="fastlane/metadata/android/en-US/phoneScreenshots/Ghost-rain.jpg" width="200" alt="Rain with HUD"></td>
@@ -37,10 +42,12 @@ Standard Gradle Android project:
 
 ```sh
 ./gradlew assembleRelease
-# output: app/build/outputs/apk/release/app-release-unsigned.apk
+# output: app/build/outputs/apk/release/app-release.apk (signed; falls back to
+# app-release-unsigned.apk only if no keystore could be created)
 ```
 
-Requirements: JDK 17, Android SDK (compileSdk 34). minSdk 26.
+Requirements: JDK 17, Android SDK (compileSdk 37, targetSdk 35). minSdk 26.
+Unit tests: `./gradlew testDebugUnitTest`.
 
 ## Setup (in the app)
 
