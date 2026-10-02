@@ -1,0 +1,1 @@
+Ghost Rain 4.2.0: live rain preview on every settings screen — home, HUD, and rain — now larger and edge-to-edge, so tweaks show instantly. Also fixed a duplicate top bar and smoothed slider/hue press feedback (reduced-motion aware).
