@@ -363,6 +363,9 @@ class MatrixWallpaperService : WallpaperService() {
                             ?.connectionInfo
                 } catch (_: Exception) { null }
                 val ssid = HudLines.cleanSsid(info?.ssid) ?: return NetDetail(transport, null, -1)
+                // Two-arg overload is deprecated but the only spelling that works
+                // back to minSdk 26 with an explicit level count.
+                @Suppress("DEPRECATION")
                 val level = try {
                     WifiManager.calculateSignalLevel(info!!.rssi, 5).coerceIn(0, 4)
                 } catch (_: Exception) { -1 }
@@ -416,6 +419,9 @@ class MatrixWallpaperService : WallpaperService() {
             else String.format(Locale.US, "%02d:%02d", hh, mm)
         }
 
+        // allNetworks is deprecated with no enumeration replacement; the
+        // priority scan below needs the full list, so keep + suppress.
+        @Suppress("DEPRECATION")
         private fun ip(): String? {
             // Examine ALL networks and prefer Wi-Fi by transport (cellular often stays
             // up after a Wi-Fi switch, and getActiveNetwork() can lag on cellular).
@@ -457,6 +463,9 @@ class MatrixWallpaperService : WallpaperService() {
         }
 
         /** Fallback IP detection: enumerate interfaces directly, then try WifiManager. */
+        // connectionInfo/ipAddress are deprecated but remain the only fallback
+        // path that works back to minSdk 26.
+        @Suppress("DEPRECATION")
         private fun fallbackIp(): String? {
             var wifi: String? = null
             var other: String? = null

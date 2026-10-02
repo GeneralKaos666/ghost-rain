@@ -14,8 +14,8 @@ import androidx.activity.enableEdgeToEdge
  */
 class SettingsActivity : ComponentActivity() {
 
-    override fun onCreate(s: Bundle?) {
-        super.onCreate(s)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         // DataStore is the source of truth: one blocking load runs the
         // one-time legacy migration on upgrade (also triggered by the engine;
         // whichever runs first wins, later calls are no-ops).

@@ -116,6 +116,9 @@ fun SettingsScreen() {
     // wallpaper-active state), so the whole screen recomputes.
     var prefsTick by remember { mutableIntStateOf(0) }
     var resumed by remember { mutableStateOf(true) }
+    // LocalLifecycleOwner moved to the lifecycle-runtime-compose artifact; the
+    // platform import still works, so suppress instead of adding a dependency.
+    @Suppress("DEPRECATION")
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         // Repo change listener: any write recomposes (same role the
@@ -1187,9 +1190,9 @@ private fun isOurWallpaperActive(context: Context): Boolean {
 }
 
 /** Installed versionCode; works on API 26-27 without the longVersionCode field. */
+@Suppress("DEPRECATION") // versionCode branch is the pre-28 path by design.
 private fun currentVersionCode(context: Context): Int {
     return try {
-        @Suppress("DEPRECATION")
         val pi = context.packageManager.getPackageInfo(context.packageName, 0)
         if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode.toInt()
         else pi.versionCode
