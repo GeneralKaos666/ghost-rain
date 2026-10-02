@@ -42,12 +42,12 @@ import kotlin.math.roundToInt
  *   translucent fill — all rasterized through `nativeCanvas` with the same
  *   paint values, so pixels match the legacy view within rounding.
  * - Frame loop: a `LaunchedEffect` re-triggers a redraw every `frameDelayMs`
- *   while [animating]; leaving the composition (collapsing SCREEN) cancels
+ *   while [animating]; leaving the composition cancels
  *   the loop with no leak. `resize(sw, sh, rain)` runs on first composition
  *   and whenever `fontSizeMul` changes, mirroring `setRain`.
  *
- * @param animating rain loop on/off; the caller passes
- * `screenOpen && resumed` (SCREEN-section open state + activity lifecycle).
+ * @param animating rain loop on/off; the caller passes the activity
+ * `resumed` state (host screen open + activity lifecycle).
  */
 @Composable
 fun RainPreview(

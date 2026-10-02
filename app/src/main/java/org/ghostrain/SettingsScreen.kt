@@ -73,13 +73,17 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 private const val SCREEN_MAIN = "main"
-private const val SCREEN_DISPLAY = "display"
 private const val SCREEN_HUD = "hud"
 private const val SCREEN_RAIN = "rain"
 
 /**
  * Compose settings host: single config (no HOME/LOCK split), one screen at a
- * time — a main menu plus Display / HUD / Rain detail screens.
+ * time — a main menu plus HUD / Rain detail screens.
+ *
+ * The main menu hosts the live [PreviewBridge] plus [LayoutsRow]; HUD and
+ * Rain detail screens each repeat the preview at the top so tweaks give
+ * instant feedback. Only one screen composes at a time, so only one
+ * [RainPreview] frame loop runs.
  *
  * Restoration notes (legacy `SettingsActivity` behavior, kept verbatim):
  * - The SET button writes `lastAppliedVersion` optimistically before launching
@@ -90,7 +94,7 @@ private const val SCREEN_RAIN = "rain"
  *   per version via `updatePromptDismissed`), then nothing.
  * - Layouts round-trip the same `layouts` JSON via [LayoutsRepo].
  *
- * The rain preview loop runs only while the Display screen is open and the
+ * The rain preview loop runs while its host screen is open and the
  * activity is resumed.
  *
  * Refresh notes: [prefsTick] is read in this body (passed as
@@ -135,16 +139,20 @@ fun SettingsScreen() {
         }
     }
     val snacks = remember { SnackbarHostState() }
+    // Legacy saves may still hold "display" (removed screen): fall back to main.
+    val effectiveScreen = when (screen) {
+        SCREEN_HUD, SCREEN_RAIN -> screen
+        else -> SCREEN_MAIN
+    }
 
-    BackHandler(enabled = screen != SCREEN_MAIN) { screen = SCREEN_MAIN }
+    BackHandler(enabled = effectiveScreen != SCREEN_MAIN) { screen = SCREEN_MAIN }
 
     Scaffold(
             topBar = {
                 TopAppBar(
                         title = {
                             Text(
-                                when (screen) {
-                                    SCREEN_DISPLAY -> "Display"
+                                when (effectiveScreen) {
                                     SCREEN_HUD -> "HUD"
                                     SCREEN_RAIN -> "Rain"
                                     else -> "Ghost Rain"
@@ -152,7 +160,7 @@ fun SettingsScreen() {
                             )
                         },
                         navigationIcon = {
-                            if (screen != SCREEN_MAIN) {
+                            if (effectiveScreen != SCREEN_MAIN) {
                                 TextButton(onClick = { screen = SCREEN_MAIN }) {
                                     Text("\u2039 Back")
                                 }
@@ -165,24 +173,10 @@ fun SettingsScreen() {
         Column(
                 modifier = Modifier.fillMaxSize().padding(padding)
         ) {
-            when (screen) {
-                SCREEN_MAIN -> MainScreen(
-                        prefsTick = prefsTick,
-                        resumed = resumed,
-                        onChanged = { prefsTick++ },
-                        onOpen = { screen = it }
-                )
-                SCREEN_DISPLAY -> DetailScreen {
-                    ScreenSection(
-                            animating = resumed,
-                            snapshotVersion = prefsTick,
-                            onChanged = { prefsTick++ },
-                            currentLayout = currentLayout,
-                            onLayoutChange = { currentLayout = it }
-                    )
-                }
+            when (effectiveScreen) {
                 SCREEN_HUD -> DetailScreen {
                     HudSection(
+                            animating = resumed,
                             snapshotVersion = prefsTick,
                             onChanged = { prefsTick++ },
                             snacks = snacks,
@@ -190,13 +184,22 @@ fun SettingsScreen() {
                             onLayoutChange = { currentLayout = it }
                     )
                 }
-                else -> DetailScreen {
+                SCREEN_RAIN -> DetailScreen {
                     RainSection(
+                            animating = resumed,
                             snapshotVersion = prefsTick,
                             onChanged = { prefsTick++ },
                             snacks = snacks
                     )
                 }
+                else -> MainScreen(
+                        prefsTick = prefsTick,
+                        resumed = resumed,
+                        onChanged = { prefsTick++ },
+                        onOpen = { screen = it },
+                        currentLayout = currentLayout,
+                        onLayoutChange = { currentLayout = it }
+                )
             }
         }
     }
@@ -214,21 +217,34 @@ private fun DetailScreen(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
-/** Main menu: status/setup plus one entry row per detail screen. */
+/** Main menu: status/setup, live preview + layouts, plus HUD/Rain entries. */
 @Composable
 private fun MainScreen(
         prefsTick: Int,
         resumed: Boolean,
         onChanged: () -> Unit,
-        onOpen: (String) -> Unit
+        onOpen: (String) -> Unit,
+        currentLayout: String?,
+        onLayoutChange: (String?) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         SetupCard(prefsTick, resumed, onChanged = onChanged)
-        NavRow(
-                title = "Display",
-                subtitle = "Live preview + saved layouts",
-                onClick = { onOpen(SCREEN_DISPLAY) }
-        )
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+            PreviewBridge(
+                    animating = resumed,
+                    snapshotVersion = prefsTick
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            LayoutsRow(
+                    onChanged = onChanged,
+                    currentLayout = currentLayout,
+                    onLayoutChange = onLayoutChange
+            )
+            Text(
+                    "New = fresh config; Save as\u2026 = store it as a named layout.",
+                    style = MaterialTheme.typography.bodySmall
+            )
+        }
         NavRow(
                 title = "HUD",
                 subtitle = "Overlay, elements, position, color",
@@ -370,41 +386,13 @@ private fun DetailHeader(
 }
 
 /**
- * Display screen: live [PreviewBridge] plus [LayoutsRow]. The rain loop runs
- * while this screen is open ([animating], driven by the activity lifecycle).
- */
-@Composable
-private fun ScreenSection(
-        animating: Boolean,
-        snapshotVersion: Int,
-        onChanged: () -> Unit,
-        currentLayout: String?,
-        onLayoutChange: (String?) -> Unit
-) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        PreviewBridge(
-                animating = animating,
-                snapshotVersion = snapshotVersion
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        LayoutsRow(
-                onChanged = onChanged,
-                currentLayout = currentLayout,
-                onLayoutChange = onLayoutChange
-        )
-        Text(
-                "New = fresh config; Save as\u2026 = store it as a named layout.",
-                style = MaterialTheme.typography.bodySmall
-        )
-    }
-}
-
-/**
  * HUD screen: single overlay config (no HOME/LOCK split). Every key is the
- * base pref key — see [HudPrefs.keyOf].
+ * base pref key — see [HudPrefs.keyOf]. Live [PreviewBridge] on top so
+ * position/size/visibility tweaks give instant feedback.
  */
 @Composable
 private fun HudSection(
+        animating: Boolean,
         // Changed on every pref write (caller passes prefsTick): a changed arg
         // defeats strong skipping, so slider thumbs/labels re-read fresh values
         // mid-drag instead of only on scroll.
@@ -421,6 +409,11 @@ private fun HudSection(
     val scope = rememberCoroutineScope()
 
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        PreviewBridge(
+                animating = animating,
+                snapshotVersion = snapshotVersion
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         DetailHeader(
                 title = "HUD",
                 resetDescription = "Reset HUD to defaults",
@@ -674,10 +667,11 @@ private fun resetRain() {
 /**
  * RAIN screen: global matrix-rain config. Slider/switch writes go straight to
  * the [MatrixDataStore] snapshot; the tick read in [SettingsScreen] recomposes
- * on any write, so the preview (on the Display screen) stays in sync.
+ * on any write, so the preview at the top stays in sync.
  */
 @Composable
 private fun RainSection(
+        animating: Boolean,
         // See HudSection: defeats strong skipping so sliders follow drags.
         snapshotVersion: Int,
         onChanged: () -> Unit,
@@ -689,6 +683,11 @@ private fun RainSection(
     val scope = rememberCoroutineScope()
 
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        PreviewBridge(
+                animating = animating,
+                snapshotVersion = snapshotVersion
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         DetailHeader(
                 title = "Rain (global)",
                 resetDescription = "Reset rain to defaults",

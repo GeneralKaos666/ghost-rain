@@ -64,10 +64,10 @@ internal fun previewLines(): Array<String> {
  * any pref write, so slider/toggle edits refresh the preview through this
  * path. No `AndroidView` remains: the legacy `PreviewView` is deleted.
  *
- * @param animating rain loop on/off; the caller passes
- * `screenOpen && resumed` (SCREEN-section open state + activity lifecycle).
- * [RainPreview] cancels its frame loop when this node leaves the composition
- * (collapsing SCREEN), so there is no leak.
+ * @param animating rain loop on/off; the caller passes the activity
+ * `resumed` state (host screen open + activity lifecycle).
+ * [RainPreview] cancels its frame loop when this node leaves the composition,
+ * so there is no leak.
  */
 @Composable
 fun PreviewBridge(
