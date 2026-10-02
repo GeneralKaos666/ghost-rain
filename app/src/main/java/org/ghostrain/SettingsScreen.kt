@@ -51,6 +51,7 @@ fun SettingsScreen() {
                 )
             }
             // Per-screen sections; Tasks 4-6 fill these, keyed off editingLock.
+            // TODO(Tasks 4-6: wire HudPrefs/LayoutsRepo here)
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 item {
                     Text(if (editingLock) "LOCK screen" else "HOME screen")

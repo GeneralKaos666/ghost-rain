@@ -57,6 +57,7 @@ class SettingsActivity : ComponentActivity() {
      * Bridge hook for [HuePicker]: the Compose screen (Tasks 4-6) refreshes the
      * preview through state instead; this stub only keeps the legacy class compiling.
      */
+    // TODO(Task 4: route HuePicker state + prefs into preview)
     private fun updatePreview() {
     }
 
