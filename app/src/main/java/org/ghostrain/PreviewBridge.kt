@@ -24,10 +24,10 @@ internal const val LAYOUT_TITLE_DEFAULT = "KEEP//HUD"
  * Sample HUD lines for the preview, mirroring the legacy `sampleLine()`:
  * fixed placeholder values (not live stats) with the same title/empty and
  * lock-redact rules the engine applies. Reads the [MatrixDataStore]
- * snapshot, like every other reader.
+ * snapshot, like every other reader. Single config: no screen targeting.
  */
-internal fun previewLines(editingLock: Boolean): Array<String> {
-    fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
+internal fun previewLines(): Array<String> {
+    fun keyOf(base: String) = HudPrefs.keyOf(base)
     val lines = mutableListOf<String>()
     if (MatrixDataStore.getBoolean(keyOf("hud"), true)) {
         for (key in HudPrefs.orderKeys(MatrixDataStore.getString("order", HudPrefs.DEFAULT_ORDER))) {
@@ -42,7 +42,7 @@ internal fun previewLines(editingLock: Boolean): Array<String> {
                 "cpu" -> "CPU  [##\u00B7\u00B7\u00B7\u00B7\u00B7\u00B7] 18%"
                 "net" -> HudLines.netLine(
                     "192.168.7.127",
-                    locked = editingLock,
+                    locked = false,
                     redact = MatrixDataStore.getBoolean(keyOf("redactIp"), true),
                     transport = "Wi-Fi",
                     ssid = "HomeNet",
@@ -71,7 +71,6 @@ internal fun previewLines(editingLock: Boolean): Array<String> {
  */
 @Composable
 fun PreviewBridge(
-        editingLock: Boolean,
         animating: Boolean,
         snapshotVersion: Int,
         modifier: Modifier = Modifier
@@ -80,7 +79,6 @@ fun PreviewBridge(
     snapshotVersion // forwarded: structural preview refresh token
     Card(modifier = modifier.fillMaxWidth()) {
         RainPreview(
-                editingLock = editingLock,
                 animating = animating,
                 snapshotVersion = snapshotVersion,
                 modifier = Modifier.fillMaxWidth().height(190.dp)

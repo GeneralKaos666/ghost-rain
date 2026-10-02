@@ -58,15 +58,10 @@ class MatrixWallpaperService : WallpaperService() {
         private var netCm: ConnectivityManager? = null
         private var netCb: ConnectivityManager.NetworkCallback? = null
         private var showHud = true
-        private var showHudLock = true
         private var hudPos = 0.5f
         private var hudX = 0.5f
-        private var hudScale = 1.0f            // home
-        private var hudPosLock = 0.5f
-        private var hudXLock = 0.5f
-        private var hudScaleLock = 1.0f        // lock
-        private var hudDynamic = MatrixDataStore.HUD_DYNAMIC_DEFAULT      // home
-        private var hudDynamicLock = MatrixDataStore.HUD_DYNAMIC_DEFAULT  // lock
+        private var hudScale = 1.0f
+        private var hudDynamic = MatrixDataStore.HUD_DYNAMIC_DEFAULT
         private var dynText = MatrixDataStore.LEGACY_TEXT_COLOR
         private var dynPanel = MatrixDataStore.LEGACY_PANEL_COLOR
         private lateinit var rainRenderer: RainRenderer
@@ -135,17 +130,11 @@ class MatrixWallpaperService : WallpaperService() {
 
         private fun readPrefs() {
             showHud = MatrixDataStore.getBoolean("hud", true)
-            showHudLock = MatrixDataStore.getBoolean("hudLock", true)
             hudPos = MatrixDataStore.getInt("hudPos", 50) / 100f
             hudX = MatrixDataStore.getInt("hudX", 50) / 100f
             hudScale = MatrixDataStore.getInt("hudScale", 100) / 100f
-            hudPosLock = MatrixDataStore.getInt("hudPosLock", 50) / 100f
-            hudXLock = MatrixDataStore.getInt("hudXLock", 50) / 100f
-            hudScaleLock = MatrixDataStore.getInt("hudScaleLock", 100) / 100f
             hudDynamic = MatrixDataStore.getBoolean(
-                    HudPrefs.keyOf("hudDynamic", false), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
-            hudDynamicLock = MatrixDataStore.getBoolean(
-                    HudPrefs.keyOf("hudDynamic", true), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
+                    HudPrefs.keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
             rainSettings = RainSettings.fromSnapshot(MatrixDataStore.snapshot())
         }
 
@@ -200,7 +189,7 @@ class MatrixWallpaperService : WallpaperService() {
                     lastStats = 0
                     lastLocked = locked
                 }  // rebuild HUD instantly on (un)lock
-                if (if (locked) showHudLock else showHud) drawHud(c, locked)
+                if (showHud) drawHud(c, locked)
             } finally {
                 if (c != null) holder.unlockCanvasAndPost(c)
             }
@@ -210,22 +199,21 @@ class MatrixWallpaperService : WallpaperService() {
             val now = SystemClock.elapsedRealtime()
             if (now - lastStats > 1000 || hud.isEmpty()) {
                 hud = gatherStats(locked)
-                if (if (locked) hudDynamicLock else hudDynamic) refreshDynamicColors()
+                if (hudDynamic) refreshDynamicColors()
                 lastStats = now
             }
-            // Per-screen opt-in Material You HUD (Phase 3): toggle OFF keeps
+            // Opt-in Material You HUD (Phase 3): toggle OFF keeps
             // the legacy paint values byte-identical; toggle ON derives
             // text/panel from the system palette (refreshed above, ~1/sec).
-            val dynOn = if (locked) hudDynamicLock else hudDynamic
-            val colors = if (dynOn) MatrixDataStore.hudColors(true, dynText, dynPanel)
+            val colors = if (hudDynamic) MatrixDataStore.hudColors(true, dynText, dynPanel)
                     else MatrixDataStore.hudColors(false, 0, 0)
             hudText.color = colors.text
             panel.color = colors.panel
             val n = hud.size
             if (n == 0) return
-            val uScale = if (locked) hudScaleLock else hudScale
-            val uX = if (locked) hudXLock else hudX
-            val uPos = if (locked) hudPosLock else hudPos
+            val uScale = hudScale
+            val uX = hudX
+            val uPos = hudPos
             val size = rainRenderer.cell * 1.05f * uScale
             hudText.textSize = size
             hudText.textAlign = Paint.Align.CENTER
@@ -261,7 +249,7 @@ class MatrixWallpaperService : WallpaperService() {
         private fun gatherStats(locked: Boolean): Array<String> {
             val l = mutableListOf<String>()
             for (key in orderKeys()) {
-                if (!elOn(key, locked)) continue
+                if (!elOn(key)) continue
                 val line = lineFor(key, locked)
                 if (line != null) l.add(line)
             }
@@ -271,7 +259,7 @@ class MatrixWallpaperService : WallpaperService() {
         private fun lineFor(key: String, locked: Boolean): String? {
             return when (key) {
                 "title" -> HudLines.titleOrNull(
-                    MatrixDataStore.getString(HudPrefs.keyOf("title", locked), "KEEP//HUD")
+                    MatrixDataStore.getString(HudPrefs.keyOf("title"), "KEEP//HUD")
                 )
                 "ram" -> {
                     try {
@@ -321,7 +309,7 @@ class MatrixWallpaperService : WallpaperService() {
                     HudLines.netLine(
                         ip(),
                         locked = locked,
-                        redact = MatrixDataStore.getBoolean(HudPrefs.keyOf("redactIp", locked), true),
+                        redact = MatrixDataStore.getBoolean(HudPrefs.keyOf("redactIp"), true),
                         transport = detail.transport,
                         ssid = detail.ssid,
                         signalLevel = detail.signalLevel
@@ -332,8 +320,8 @@ class MatrixWallpaperService : WallpaperService() {
             }
         }
 
-        private fun elOn(name: String, locked: Boolean): Boolean {
-            return MatrixDataStore.getBoolean(HudPrefs.keyOf("el_$name", locked), true)
+        private fun elOn(name: String): Boolean {
+            return MatrixDataStore.getBoolean(HudPrefs.keyOf("el_$name"), true)
         }
 
         /** Material You palette for the opt-in dynamic HUD, or keeps the last good values. */

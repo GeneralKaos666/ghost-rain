@@ -18,12 +18,10 @@ object HudPrefs {
     val defaultOrder: List<String> = DEFAULT_ORDER.split(",")
 
     /**
-     * Per-screen pref key for [base]: the LOCK variant is the base key plus a
-     * `Lock` suffix (e.g. `hud`/`hudLock`, `el_ram`/`el_ramLock`). Pass
-     * `editingLock = true` when reading/writing the lock-screen config.
+     * Pref key for [base]. Single HUD config since HOME/LOCK split removal:
+     * the base key itself (legacy `*Lock` variants stay dormant in storage).
      */
-    fun keyOf(base: String, editingLock: Boolean): String =
-            if (editingLock) base + "Lock" else base
+    fun keyOf(base: String): String = base
 
     /**
      * Merge a stored `order` CSV with [DEFAULT_ORDER]: stored known keys first

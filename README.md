@@ -26,9 +26,10 @@ screens.
 
 <table>
   <tr>
-    <td><img src="fastlane/metadata/android/en-US/phoneScreenshots/Ghost-rain.png" width="200" alt="Setup + live preview"></td>
-    <td><img src="fastlane/metadata/android/en-US/phoneScreenshots/Ghost-rain2.png" width="200" alt="Settings — HUD section"></td>
-    <td><img src="fastlane/metadata/android/en-US/phoneScreenshots/Ghost-rain3.png" width="200" alt="Settings — rain section"></td>
+    <td><img src="fastlane/metadata/android/en-US/phoneScreenshots/Ghost-rain.png" width="200" alt="Main menu"></td>
+    <td><img src="fastlane/metadata/android/en-US/phoneScreenshots/Ghost-rain2.png" width="200" alt="Display — live preview"></td>
+    <td><img src="fastlane/metadata/android/en-US/phoneScreenshots/Ghost-rain3.png" width="200" alt="HUD screen"></td>
+    <td><img src="fastlane/metadata/android/en-US/phoneScreenshots/Ghost-rain4.png" width="200" alt="Rain screen"></td>
   </tr>
 </table>
 

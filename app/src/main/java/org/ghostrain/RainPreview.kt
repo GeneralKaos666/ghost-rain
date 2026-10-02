@@ -51,23 +51,21 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun RainPreview(
-        editingLock: Boolean,
         animating: Boolean,
         snapshotVersion: Int,
         modifier: Modifier = Modifier
 ) {
     @Suppress("UNUSED_EXPRESSION")
     snapshotVersion // structural refresh token: bumped on any pref write
-    fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
-    val px = MatrixDataStore.getInt(keyOf("hudX"), 50) / 100f
-    val py = MatrixDataStore.getInt(keyOf("hudPos"), 50) / 100f
-    val scale = MatrixDataStore.getInt(keyOf("hudScale"), 100) / 100f
-    val lines = previewLines(editingLock)
+    val px = MatrixDataStore.getInt("hudX", 50) / 100f
+    val py = MatrixDataStore.getInt("hudPos", 50) / 100f
+    val scale = MatrixDataStore.getInt("hudScale", 100) / 100f
+    val lines = previewLines()
     val rain = RainSettings.fromSnapshot(MatrixDataStore.snapshot())
     // Per-screen opt-in Material You HUD: OFF keeps the legacy green paint
     // values (identical to the wallpaper engine defaults); ON follows the
     // Compose palette (the engine resolves the equivalent system accents).
-    val dynamic = MatrixDataStore.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
+    val dynamic = MatrixDataStore.getBoolean("hudDynamic", MatrixDataStore.HUD_DYNAMIC_DEFAULT)
     val scheme = MaterialTheme.colorScheme
     val previewText = if (dynamic) scheme.primary else Color(0xFF00FF66)
     val previewFill = if (dynamic) scheme.surfaceVariant.copy(alpha = 0.78f) else Color(0x3300FF66)

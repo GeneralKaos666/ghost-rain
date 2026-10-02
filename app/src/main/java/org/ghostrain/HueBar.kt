@@ -5,6 +5,9 @@ import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -13,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -84,6 +88,14 @@ fun HueBar(
     // so without these the mid-drag emitHue would use a stale hue/callback.
     val latestCoerced by rememberUpdatedState(coerced)
     val latestOnHue by rememberUpdatedState(onHue)
+    // Expressive press feedback: the thumb swells on touch and settles back
+    // on a spring, matching the M3 slider treatment in SettingsScreen.
+    var pressed by remember { mutableStateOf(false) }
+    val thumbScale by animateFloatAsState(
+            if (pressed) 1.35f else 1f,
+            spring(stiffness = Spring.StiffnessMedium),
+            label = "hueThumb"
+    )
     fun emitHue(x: Float) {
         if (widthPx <= 0f) return
         val barL = (thumbR + edge).toFloat()
@@ -103,14 +115,19 @@ fun HueBar(
                     .pointerInput(widthPx) {
                         awaitEachGesture {
                             val down = awaitFirstDown()
-                            emitHue(down.position.x)
-                            do {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull() ?: break
-                                emitHue(change.position.x)
-                                change.consume()
-                                if (!event.changes.any { it.pressed }) break
-                            } while (true)
+                            pressed = true
+                            try {
+                                emitHue(down.position.x)
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull() ?: break
+                                    emitHue(change.position.x)
+                                    change.consume()
+                                    if (!event.changes.any { it.pressed }) break
+                                } while (true)
+                            } finally {
+                                pressed = false
+                            }
                         }
                     }
     ) {
@@ -120,6 +137,8 @@ fun HueBar(
         val barR = w - thumbR - edge
         val barTop = (h - barH) / 2f
         val cy = barTop + barH / 2f
+        val thumbCX = barL + (barR - barL) * (coerced / 360f)
+        val thumbPx = thumbR * thumbScale
         drawIntoCanvas { nv ->
             val c = nv.nativeCanvas
             val colors = IntArray(7) { i ->
@@ -132,14 +151,13 @@ fun HueBar(
             c.drawRoundRect(barL, barTop, barR, barTop + barH, corner, corner, barPaint)
             c.drawRoundRect(barL, barTop, barR, barTop + barH, corner, corner, borderPaint)
 
-            val thumbCX = barL + (barR - barL) * (coerced / 360f)
-            c.drawCircle(thumbCX, cy, thumbR.toFloat(), thumbFill)
-            c.drawCircle(thumbCX, cy, thumbR.toFloat(), thumbStroke)
+            c.drawCircle(thumbCX, cy, thumbPx, thumbFill)
+            c.drawCircle(thumbCX, cy, thumbPx, thumbStroke)
 
             val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.HSVToColor(255, floatArrayOf(coerced.toFloat(), 1f, 1f))
             }
-            c.drawCircle(thumbCX, cy, thumbR * 0.45f, dot)
+            c.drawCircle(thumbCX, cy, thumbPx * 0.45f, dot)
         }
     }
 }

@@ -8,9 +8,17 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,7 +26,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -29,9 +38,6 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -53,6 +59,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.contentDescription
@@ -63,9 +72,14 @@ import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
+private const val SCREEN_MAIN = "main"
+private const val SCREEN_DISPLAY = "display"
+private const val SCREEN_HUD = "hud"
+private const val SCREEN_RAIN = "rain"
+
 /**
- * Compose settings host: top bar, HOME/LOCK target switch, and per-screen
- * sections. SETUP + SCREEN came from Task 4, HUD from Task 5, RAIN from Task 6.
+ * Compose settings host: single config (no HOME/LOCK split), one screen at a
+ * time — a main menu plus Display / HUD / Rain detail screens.
  *
  * Restoration notes (legacy `SettingsActivity` behavior, kept verbatim):
  * - The SET button writes `lastAppliedVersion` optimistically before launching
@@ -76,32 +90,26 @@ import kotlin.math.roundToInt
  *   per version via `updatePromptDismissed`), then nothing.
  * - Layouts round-trip the same `layouts` JSON via [LayoutsRepo].
  *
- * The rain loop runs only while SCREEN is open and the activity is resumed.
+ * The rain preview loop runs only while the Display screen is open and the
+ * activity is resumed.
  *
- * State notes: `editingLock` (which screen is being edited) survives rotation
- * via [rememberSaveable]; section open/closed states persist in the app-level
- * `ui_open_*` prefs (RAIN collapsed by default, like the legacy section).
+ * Refresh notes: [prefsTick] is read in this body (passed as
+ * `snapshotVersion` below), so any pref write recomposes the whole screen —
+ * slider thumbs/labels follow drags instantly. Detail screens are plain
+ * scrollable Columns (no lazy item scopes), so there is no stale-scope class
+ * of bug here.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen() {
-    var editingLock by rememberSaveable { mutableStateOf(false) }
-    var screenOpen by remember {
-        mutableStateOf(MatrixDataStore.getBoolean("ui_open_screen", true))
-    }
-    var hudOpen by remember {
-        mutableStateOf(MatrixDataStore.getBoolean("ui_open_hud", true))
-    }
-    var rainOpen by remember {
-        mutableStateOf(MatrixDataStore.getBoolean("ui_open_rain", false))
-    }
-    // Which named layout the SCREEN row shows as loaded. Hoisted here (not in
-    // LayoutsRow) so the HUD Reset — a sibling section — can clear the label,
+    var screen by rememberSaveable { mutableStateOf(SCREEN_MAIN) }
+    // Which named layout the layouts row shows as loaded. Hoisted here (not in
+    // LayoutsRow) so the HUD Reset — a different screen — can clear the label,
     // exactly like legacy resetHud cleared currentLayout.
     var currentLayout by remember { mutableStateOf<String?>(null) }
-    // Bumped on any pref write (controls in Tasks 5-6, layout ops below) and
-    // on lifecycle resume (returning from the system wallpaper picker may have
-    // changed wallpaper-active state), so preview + status card recompute.
+    // Bumped on any pref write (controls, layout ops) and on lifecycle resume
+    // (returning from the system wallpaper picker may have changed
+    // wallpaper-active state), so the whole screen recomputes.
     var prefsTick by remember { mutableIntStateOf(0) }
     var resumed by remember { mutableStateOf(true) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -128,59 +136,63 @@ fun SettingsScreen() {
     }
     val snacks = remember { SnackbarHostState() }
 
+    BackHandler(enabled = screen != SCREEN_MAIN) { screen = SCREEN_MAIN }
+
     Scaffold(
             topBar = {
-                TopAppBar(title = { Text("Ghost Rain") })
+                TopAppBar(
+                        title = {
+                            Text(
+                                when (screen) {
+                                    SCREEN_DISPLAY -> "Display"
+                                    SCREEN_HUD -> "HUD"
+                                    SCREEN_RAIN -> "Rain"
+                                    else -> "Ghost Rain"
+                                }
+                            )
+                        },
+                        navigationIcon = {
+                            if (screen != SCREEN_MAIN) {
+                                TextButton(onClick = { screen = SCREEN_MAIN }) {
+                                    Text("\u2039 Back")
+                                }
+                            }
+                        }
+                )
             },
             snackbarHost = { SnackbarHost(snacks) }
     ) { padding ->
         Column(
                 modifier = Modifier.fillMaxSize().padding(padding)
         ) {
-            TargetSwitch(editingLock = editingLock, onChange = { editingLock = it })
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                item {
-                    SetupCard(prefsTick, resumed, onChanged = { prefsTick++ })
-                }
-                item {
+            when (screen) {
+                SCREEN_MAIN -> MainScreen(
+                        prefsTick = prefsTick,
+                        resumed = resumed,
+                        onChanged = { prefsTick++ },
+                        onOpen = { screen = it }
+                )
+                SCREEN_DISPLAY -> DetailScreen {
                     ScreenSection(
-                            
-                            editingLock = editingLock,
-                            open = screenOpen,
-                            animating = screenOpen && resumed,
+                            animating = resumed,
                             snapshotVersion = prefsTick,
-                            onToggle = {
-                                screenOpen = !screenOpen
-                                MatrixDataStore.putBoolean("ui_open_screen", screenOpen)
-                            },
                             onChanged = { prefsTick++ },
                             currentLayout = currentLayout,
                             onLayoutChange = { currentLayout = it }
                     )
                 }
-                item {
+                SCREEN_HUD -> DetailScreen {
                     HudSection(
-                            
-                            editingLock = editingLock,
-                            open = hudOpen,
-                            onToggle = {
-                                hudOpen = !hudOpen
-                                MatrixDataStore.putBoolean("ui_open_hud", hudOpen)
-                            },
+                            snapshotVersion = prefsTick,
                             onChanged = { prefsTick++ },
                             snacks = snacks,
                             currentLayout = currentLayout,
                             onLayoutChange = { currentLayout = it }
                     )
                 }
-                item {
+                else -> DetailScreen {
                     RainSection(
-                            
-                            open = rainOpen,
-                            onToggle = {
-                                rainOpen = !rainOpen
-                                MatrixDataStore.putBoolean("ui_open_rain", rainOpen)
-                            },
+                            snapshotVersion = prefsTick,
                             onChanged = { prefsTick++ },
                             snacks = snacks
                     )
@@ -190,32 +202,54 @@ fun SettingsScreen() {
     }
 }
 
-/**
- * Global HOME/LOCK target switch: a Material3 single-choice segmented button
- * (48dp targets, text labels double as TalkBack descriptions). One switcher
- * for the whole screen; the per-section duplicate from the early Compose port
- * is gone — legacy had a single toggle too (inside SCREEN).
- */
+/** Plain scrollable detail column: one composition scope, no lazy staleness. */
 @Composable
-private fun TargetSwitch(editingLock: Boolean, onChange: (Boolean) -> Unit) {
-    SingleChoiceSegmentedButtonRow(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
+private fun DetailScreen(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+            modifier = Modifier.fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 8.dp)
     ) {
-        SegmentedButton(
-                selected = !editingLock,
-                onClick = { onChange(false) },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                modifier = Modifier.heightIn(min = 48.dp),
-                label = { Text("HOME") }
+        content()
+    }
+}
+
+/** Main menu: status/setup plus one entry row per detail screen. */
+@Composable
+private fun MainScreen(
+        prefsTick: Int,
+        resumed: Boolean,
+        onChanged: () -> Unit,
+        onOpen: (String) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        SetupCard(prefsTick, resumed, onChanged = onChanged)
+        NavRow(
+                title = "Display",
+                subtitle = "Live preview + saved layouts",
+                onClick = { onOpen(SCREEN_DISPLAY) }
         )
-        SegmentedButton(
-                selected = editingLock,
-                onClick = { onChange(true) },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                modifier = Modifier.heightIn(min = 48.dp),
-                label = { Text("LOCK") }
+        NavRow(
+                title = "HUD",
+                subtitle = "Overlay, elements, position, color",
+                onClick = { onOpen(SCREEN_HUD) }
+        )
+        NavRow(
+                title = "Rain",
+                subtitle = "Speed, color, glyphs, presets",
+                onClick = { onOpen(SCREEN_RAIN) }
         )
     }
+}
+
+@Composable
+private fun NavRow(title: String, subtitle: String, onClick: () -> Unit) {
+    ListItem(
+            headlineContent = { Text(title) },
+            supportingContent = { Text(subtitle) },
+            trailingContent = { Text("\u203A", style = MaterialTheme.typography.headlineSmall) },
+            modifier = Modifier.clickable(onClick = onClick).heightIn(min = 64.dp)
+    )
 }
 
 /**
@@ -308,16 +342,10 @@ private fun StatusCard(text: String, dismissLabel: String? = null, onDismiss: ()
     }
 }
 
-/**
- * Shared collapsible-section header: title, optional Reset action, and a 48dp
- * expand/collapse [IconButton] with a TalkBack description. The title itself
- * is also tappable (large target); both toggle the section.
- */
+/** Static detail header: title plus optional Reset action. */
 @Composable
-private fun SectionHeader(
+private fun DetailHeader(
         title: String,
-        open: Boolean,
-        onToggle: () -> Unit,
         resetDescription: String? = null,
         onReset: (() -> Unit)? = null
 ) {
@@ -328,7 +356,7 @@ private fun SectionHeader(
         Text(
                 title,
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f).clickable(onClick = onToggle)
+                modifier = Modifier.weight(1f)
         )
         if (onReset != null) {
             TextButton(
@@ -338,97 +366,66 @@ private fun SectionHeader(
                     }
             ) { Text("Reset") }
         }
-        IconButton(
-                onClick = onToggle,
-                modifier = Modifier.semantics {
-                    contentDescription = if (open) "Collapse $title section" else "Expand $title section"
-                }
-        ) { Text(if (open) "\u2212" else "+") }
     }
 }
 
 /**
- * SCREEN section: collapsible (state in app-level `ui_open_screen`), live
- * [PreviewBridge], and [LayoutsRow]. The edited-screen target is the global
- * [TargetSwitch] above; this section just shows which screen is being edited.
- * The rain loop runs only while the section is open and the activity is resumed.
+ * Display screen: live [PreviewBridge] plus [LayoutsRow]. The rain loop runs
+ * while this screen is open ([animating], driven by the activity lifecycle).
  */
 @Composable
 private fun ScreenSection(
-        editingLock: Boolean,
-        open: Boolean,
         animating: Boolean,
         snapshotVersion: Int,
-        onToggle: () -> Unit,
         onChanged: () -> Unit,
         currentLayout: String?,
         onLayoutChange: (String?) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-        SectionHeader(
-                title = "SCREEN (HOME / LOCK)",
-                open = open,
-                onToggle = onToggle
-        )
-        if (!open) return@Column
-        Spacer(modifier = Modifier.height(4.dp))
-        Text("Editing screen: " + if (editingLock) "LOCK" else "HOME")
-        Spacer(modifier = Modifier.height(8.dp))
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         PreviewBridge(
-                editingLock = editingLock,
                 animating = animating,
                 snapshotVersion = snapshotVersion
         )
         Spacer(modifier = Modifier.height(8.dp))
         LayoutsRow(
-                editingLock = editingLock,
                 onChanged = onChanged,
                 currentLayout = currentLayout,
                 onLayoutChange = onLayoutChange
         )
         Text(
-                "New = fresh config for this screen; Save as\u2026 = store it as a named layout.",
+                "New = fresh config; Save as\u2026 = store it as a named layout.",
                 style = MaterialTheme.typography.bodySmall
         )
     }
 }
 
 /**
- * HUD section: per-screen overlay config for whichever screen is being edited
- * (HOME/LOCK via [editingLock]; every key goes through [HudPrefs.keyOf], so
- * the LOCK variant is the base key plus a `Lock` suffix). Collapsible via the
- * app-level `ui_open_hud` pref (open by default, like the legacy section).
- *
- * Title rule (single rule, used everywhere): empty-or-blank hides the title
- * line — see [HudLines.titleOrNull], which the engine and the preview also
- * use. The `order` pref is global; a reorder-save merges stored unknown
- * tokens back via [HudPrefs.mergeOrderOnSave] so they are never deleted.
+ * HUD screen: single overlay config (no HOME/LOCK split). Every key is the
+ * base pref key — see [HudPrefs.keyOf].
  */
 @Composable
 private fun HudSection(
-        editingLock: Boolean,
-        open: Boolean,
-        onToggle: () -> Unit,
+        // Changed on every pref write (caller passes prefsTick): a changed arg
+        // defeats strong skipping, so slider thumbs/labels re-read fresh values
+        // mid-drag instead of only on scroll.
+        snapshotVersion: Int,
         onChanged: () -> Unit,
         snacks: SnackbarHostState,
         currentLayout: String?,
         onLayoutChange: (String?) -> Unit
 ) {
-    fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
+    @Suppress("UNUSED_EXPRESSION")
+    snapshotVersion // subscribed refresh token (see above)
     var showReset by remember { mutableStateOf(false) }
     var showRedactConfirm by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-        SectionHeader(
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        DetailHeader(
                 title = "HUD",
-                open = open,
-                onToggle = onToggle,
                 resetDescription = "Reset HUD to defaults",
                 onReset = { showReset = true }
         )
-        if (!open) return@Column
-        Spacer(modifier = Modifier.height(4.dp))
 
         Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -436,9 +433,9 @@ private fun HudSection(
         ) {
             Text("Show HUD overlay", modifier = Modifier.weight(1f))
             Switch(
-                    checked = MatrixDataStore.getBoolean(keyOf("hud"), true),
+                    checked = MatrixDataStore.getBoolean("hud", true),
                     onCheckedChange = {
-                        MatrixDataStore.putBoolean(keyOf("hud"), it)
+                        MatrixDataStore.putBoolean("hud", it)
                         onChanged()
                     }
             )
@@ -447,10 +444,10 @@ private fun HudSection(
         Spacer(modifier = Modifier.height(4.dp))
         Text("Title text:")
         OutlinedTextField(
-                value = MatrixDataStore.getString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
+                value = MatrixDataStore.getString("title", LAYOUT_TITLE_DEFAULT)
                         ?: LAYOUT_TITLE_DEFAULT,
                 onValueChange = {
-                    MatrixDataStore.putString(keyOf("title"), it)
+                    MatrixDataStore.putString("title", it)
                     onChanged()
                 },
                 singleLine = true,
@@ -459,34 +456,34 @@ private fun HudSection(
 
         HudSlider(
                 label = "Horizontal position",
-                value = MatrixDataStore.getInt(keyOf("hudX"), 50),
+                value = MatrixDataStore.getInt("hudX", 50),
                 min = 0,
                 max = 100,
                 suffix = "%",
                 onValue = {
-                    MatrixDataStore.putInt(keyOf("hudX"), it)
+                    MatrixDataStore.putInt("hudX", it)
                     onChanged()
                 }
         )
         HudSlider(
                 label = "Vertical position",
-                value = MatrixDataStore.getInt(keyOf("hudPos"), 50),
+                value = MatrixDataStore.getInt("hudPos", 50),
                 min = 0,
                 max = 100,
                 suffix = "%",
                 onValue = {
-                    MatrixDataStore.putInt(keyOf("hudPos"), it)
+                    MatrixDataStore.putInt("hudPos", it)
                     onChanged()
                 }
         )
         HudSlider(
                 label = "Size",
-                value = MatrixDataStore.getInt(keyOf("hudScale"), 100),
+                value = MatrixDataStore.getInt("hudScale", 100),
                 min = 50,
                 max = 200,
                 suffix = "%",
                 onValue = {
-                    MatrixDataStore.putInt(keyOf("hudScale"), it)
+                    MatrixDataStore.putInt("hudScale", it)
                     onChanged()
                 }
         )
@@ -495,7 +492,7 @@ private fun HudSection(
         Text("HUD elements (check = show, arrows = reorder):")
         val order = HudPrefs.orderKeys(MatrixDataStore.getString("order", HudPrefs.DEFAULT_ORDER))
         for ((idx, key) in order.withIndex()) {
-            val elKey = keyOf("el_$key")
+            val elKey = "el_$key"
             ListItem(
                     headlineContent = { Text(labelFor(key)) },
                     trailingContent = {
@@ -532,10 +529,10 @@ private fun HudSection(
         ) {
             Text("Redact IP on lock screen", modifier = Modifier.weight(1f))
             Switch(
-                    checked = MatrixDataStore.getBoolean(keyOf("redactIp"), true),
+                    checked = MatrixDataStore.getBoolean("redactIp", true),
                     onCheckedChange = { checked ->
                         if (checked) {
-                            MatrixDataStore.putBoolean(keyOf("redactIp"), true)
+                            MatrixDataStore.putBoolean("redactIp", true)
                             onChanged()
                         } else {
                             showRedactConfirm = true
@@ -556,9 +553,9 @@ private fun HudSection(
                 )
             }
             Switch(
-                    checked = MatrixDataStore.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT),
+                    checked = MatrixDataStore.getBoolean("hudDynamic", MatrixDataStore.HUD_DYNAMIC_DEFAULT),
                     onCheckedChange = {
-                        MatrixDataStore.putBoolean(keyOf("hudDynamic"), it)
+                        MatrixDataStore.putBoolean("hudDynamic", it)
                         onChanged()
                     }
             )
@@ -578,7 +575,7 @@ private fun HudSection(
                 confirmButton = {
                     TextButton(
                             onClick = {
-                                MatrixDataStore.putBoolean(keyOf("redactIp"), false)
+                                MatrixDataStore.putBoolean("redactIp", false)
                                 showRedactConfirm = false
                                 onChanged()
                             }
@@ -592,26 +589,22 @@ private fun HudSection(
         )
     }
     if (showReset) {
-        val screen = if (editingLock) "LOCK" else "HOME"
         AlertDialog(
                 onDismissRequest = { showReset = false },
-                title = { Text("Reset $screen HUD to defaults?") },
+                title = { Text("Reset HUD to defaults?") },
                 text = {
-                    Text(
-                        "Restores position, size, title and element visibility for " +
-                                "the $screen screen."
-                    )
+                    Text("Restores position, size, title and element visibility.")
                 },
                 confirmButton = {
                     TextButton(
                             onClick = {
-                                val prev = snapshotHud(editingLock, currentLayout)
-                                for (k in LAYOUT_BOOLS) MatrixDataStore.putBoolean(keyOf(k), true)
+                                val prev = snapshotHud(currentLayout)
+                                for (k in LAYOUT_BOOLS) MatrixDataStore.putBoolean(k, true)
                                 for (i in LAYOUT_INTS.indices) {
-                                    MatrixDataStore.putInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
+                                    MatrixDataStore.putInt(LAYOUT_INTS[i], LAYOUT_INT_DEFS[i])
                                 }
-                                MatrixDataStore.putString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
-                                MatrixDataStore.putBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
+                                MatrixDataStore.putString("title", LAYOUT_TITLE_DEFAULT)
+                                MatrixDataStore.putBoolean("hudDynamic", MatrixDataStore.HUD_DYNAMIC_DEFAULT)
                                 showReset = false
                                 onLayoutChange(null)
                                 onChanged()
@@ -620,7 +613,7 @@ private fun HudSection(
                                             "HUD reset to defaults",
                                             "Undo"
                                     ) == SnackbarResult.ActionPerformed) {
-                                        restoreHud(editingLock, prev)
+                                        restoreHud(prev)
                                         onLayoutChange(prev.layoutName)
                                         onChanged()
                                     }
@@ -679,34 +672,28 @@ private fun resetRain() {
 }
 
 /**
- * RAIN section: global (not per-screen) matrix-rain config. Collapsible via the
- * app-level `ui_open_rain` pref (collapsed by default, like the legacy
- * section). Slider/switch writes go straight to the [MatrixDataStore] snapshot;
- * the listener in [SettingsScreen] recomposes on any write, so [PreviewBridge]
- * (which reads [RainSettings.fromSnapshot] every recomposition) reflects
- * changes instantly — including [HueBar] drags, which write `rainHue` to the
- * same store directly.
+ * RAIN screen: global matrix-rain config. Slider/switch writes go straight to
+ * the [MatrixDataStore] snapshot; the tick read in [SettingsScreen] recomposes
+ * on any write, so the preview (on the Display screen) stays in sync.
  */
 @Composable
 private fun RainSection(
-        open: Boolean,
-        onToggle: () -> Unit,
+        // See HudSection: defeats strong skipping so sliders follow drags.
+        snapshotVersion: Int,
         onChanged: () -> Unit,
         snacks: SnackbarHostState
 ) {
+    @Suppress("UNUSED_EXPRESSION")
+    snapshotVersion // subscribed refresh token (see above)
     var showReset by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-        SectionHeader(
-                title = "RAIN (global)",
-                open = open,
-                onToggle = onToggle,
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        DetailHeader(
+                title = "Rain (global)",
                 resetDescription = "Reset rain to defaults",
                 onReset = { showReset = true }
         )
-        if (!open) return@Column
-        Spacer(modifier = Modifier.height(4.dp))
 
         Text("Preset (color + shimmer only):")
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -723,7 +710,7 @@ private fun RainSection(
         }
 
         HudSlider(
-                label = "Glyph shimmer (both screens)",
+                label = "Glyph shimmer",
                 value = MatrixDataStore.getInt("shimmer", 60),
                 min = 0,
                 max = 100,
@@ -826,10 +813,7 @@ private fun RainSection(
                 onDismissRequest = { showReset = false },
                 title = { Text("Reset rain to defaults?") },
                 text = {
-                    Text(
-                            "Restores speed, color, glyph sets, column length and frame rate " +
-                                    "(applies to both screens)."
-                    )
+                    Text("Restores speed, color, glyph sets, column length and frame rate.")
                 },
                 confirmButton = {
                     TextButton(
@@ -868,7 +852,14 @@ private fun glyphLabel(key: String): String {
     }
 }
 
-/** Integer slider row backed by an int pref (per-screen HUD keys and global rain keys). */
+/**
+ * Expressive integer slider row backed by an int pref. While pressed, the
+ * label pops on a spring (expressive press feedback using only stable APIs —
+ * the value-based `Slider` thumb/track slots are experimental-or-deprecated
+ * in material3 1.4.0 and their opt-in is internal). The label tracks the live
+ * value every recomposition, so it follows drags (the host recomposes on any
+ * pref write).
+ */
 @Composable
 private fun HudSlider(
         label: String,
@@ -878,8 +869,39 @@ private fun HudSlider(
         suffix: String,
         onValue: (Int) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text("$label: $value$suffix")
+    var pressed by remember { mutableStateOf(false) }
+    val labelScale by animateFloatAsState(
+            targetValue = if (pressed) 1.12f else 1f,
+            animationSpec = spring(stiffness = Spring.StiffnessMedium),
+            label = "sliderLabel"
+    )
+    Column(
+            modifier = Modifier.fillMaxWidth()
+                    .pointerInput(Unit) {
+                        // Observe only (never consume): the Slider keeps full
+                        // gesture ownership; this just drives the label pop.
+                        awaitEachGesture {
+                            awaitFirstDown()
+                            pressed = true
+                            try {
+                                do {
+                                    val event = awaitPointerEvent()
+                                    if (!event.changes.any { it.pressed }) break
+                                } while (true)
+                            } finally {
+                                pressed = false
+                            }
+                        }
+                    }
+    ) {
+        Text(
+                "$label: $value$suffix",
+                modifier = Modifier.graphicsLayer(
+                        scaleX = labelScale,
+                        scaleY = labelScale,
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                )
+        )
         Slider(
                 value = value.toFloat(),
                 onValueChange = { onValue(it.roundToInt()) },
@@ -890,7 +912,7 @@ private fun HudSlider(
     }
 }
 
-/** Snapshot of one screen's HUD prefs + layout label, for Reset Undo. */
+/** Snapshot of the HUD prefs + layout label, for Reset Undo. */
 private data class HudSnapshot(
         val bools: Map<String, Boolean>,
         val ints: Map<String, Int>,
@@ -899,28 +921,23 @@ private data class HudSnapshot(
         val layoutName: String?
 )
 
-private fun snapshotHud(
-        editingLock: Boolean,
-        currentLayout: String?
-): HudSnapshot {
-    fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
+private fun snapshotHud(currentLayout: String?): HudSnapshot {
     val bools = LinkedHashMap<String, Boolean>()
-    for (k in LAYOUT_BOOLS) bools[k] = MatrixDataStore.getBoolean(keyOf(k), true)
+    for (k in LAYOUT_BOOLS) bools[k] = MatrixDataStore.getBoolean(k, true)
     val ints = LinkedHashMap<String, Int>()
     for (i in LAYOUT_INTS.indices) {
-        ints[LAYOUT_INTS[i]] = MatrixDataStore.getInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
+        ints[LAYOUT_INTS[i]] = MatrixDataStore.getInt(LAYOUT_INTS[i], LAYOUT_INT_DEFS[i])
     }
-    val title = MatrixDataStore.getString(keyOf("title"), LAYOUT_TITLE_DEFAULT) ?: LAYOUT_TITLE_DEFAULT
-    val dynamic = MatrixDataStore.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
+    val title = MatrixDataStore.getString("title", LAYOUT_TITLE_DEFAULT) ?: LAYOUT_TITLE_DEFAULT
+    val dynamic = MatrixDataStore.getBoolean("hudDynamic", MatrixDataStore.HUD_DYNAMIC_DEFAULT)
     return HudSnapshot(bools, ints, title, dynamic, currentLayout)
 }
 
-private fun restoreHud(editingLock: Boolean, snap: HudSnapshot) {
-    fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
-    for ((k, v) in snap.bools) MatrixDataStore.putBoolean(keyOf(k), v)
-    for ((k, v) in snap.ints) MatrixDataStore.putInt(keyOf(k), v)
-    MatrixDataStore.putString(keyOf("title"), snap.title)
-    MatrixDataStore.putBoolean(keyOf("hudDynamic"), snap.dynamic)
+private fun restoreHud(snap: HudSnapshot) {
+    for ((k, v) in snap.bools) MatrixDataStore.putBoolean(k, v)
+    for ((k, v) in snap.ints) MatrixDataStore.putInt(k, v)
+    MatrixDataStore.putString("title", snap.title)
+    MatrixDataStore.putBoolean("hudDynamic", snap.dynamic)
 }
 
 /** Display label for an HUD element key (mirrors the legacy element rows). */
@@ -962,18 +979,15 @@ private fun moveOrder(
 
 /**
  * Saved-layouts row: load picker dialog, New, Save as, Delete with confirm.
- * Reads/writes the same `layouts` JSON via [LayoutsRepo]; loading/applying
- * targets whichever screen is currently being edited.
+ * Reads/writes the same `layouts` JSON via [LayoutsRepo].
  */
 @Composable
 private fun LayoutsRow(
-        editingLock: Boolean,
         onChanged: () -> Unit,
         currentLayout: String?,
         onLayoutChange: (String?) -> Unit
 ) {
     val context = LocalContext.current
-    fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
     var showPicker by remember { mutableStateOf(false) }
     var showSave by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
@@ -982,29 +996,29 @@ private fun LayoutsRow(
             LayoutsRepo.load(MatrixDataStore.getString("layouts", "[]"))
 
     fun applySnapshot(s: LayoutSnapshot) {
-        for (k in LAYOUT_BOOLS) MatrixDataStore.putBoolean(keyOf(k), s.bools[k] ?: true)
+        for (k in LAYOUT_BOOLS) MatrixDataStore.putBoolean(k, s.bools[k] ?: true)
         for (i in LAYOUT_INTS.indices) {
-            MatrixDataStore.putInt(keyOf(LAYOUT_INTS[i]), s.ints[LAYOUT_INTS[i]] ?: LAYOUT_INT_DEFS[i])
+            MatrixDataStore.putInt(LAYOUT_INTS[i], s.ints[LAYOUT_INTS[i]] ?: LAYOUT_INT_DEFS[i])
         }
-        MatrixDataStore.putString(keyOf("title"), s.title.ifEmpty { LAYOUT_TITLE_DEFAULT })
-        MatrixDataStore.putBoolean(keyOf("hudDynamic"), s.bools["hudDynamic"] ?: MatrixDataStore.HUD_DYNAMIC_DEFAULT)
+        MatrixDataStore.putString("title", s.title.ifEmpty { LAYOUT_TITLE_DEFAULT })
+        MatrixDataStore.putBoolean("hudDynamic", s.bools["hudDynamic"] ?: MatrixDataStore.HUD_DYNAMIC_DEFAULT)
         onChanged()
     }
 
     fun saveLayout(name: String) {
         try {
             val bools = LinkedHashMap<String, Boolean>()
-            for (k in LAYOUT_BOOLS) bools[k] = MatrixDataStore.getBoolean(keyOf(k), true)
-            bools["hudDynamic"] = MatrixDataStore.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
+            for (k in LAYOUT_BOOLS) bools[k] = MatrixDataStore.getBoolean(k, true)
+            bools["hudDynamic"] = MatrixDataStore.getBoolean("hudDynamic", MatrixDataStore.HUD_DYNAMIC_DEFAULT)
             val ints = LinkedHashMap<String, Int>()
             for (i in LAYOUT_INTS.indices) {
-                ints[LAYOUT_INTS[i]] = MatrixDataStore.getInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
+                ints[LAYOUT_INTS[i]] = MatrixDataStore.getInt(LAYOUT_INTS[i], LAYOUT_INT_DEFS[i])
             }
             val snapshot = LayoutSnapshot(
                     name = name,
                     bools = bools,
                     ints = ints,
-                    title = MatrixDataStore.getString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
+                    title = MatrixDataStore.getString("title", LAYOUT_TITLE_DEFAULT)
                             ?: LAYOUT_TITLE_DEFAULT
             )
             val out = loadLayouts().filter { it.name != name } + snapshot
@@ -1027,16 +1041,16 @@ private fun LayoutsRow(
     }
 
     fun newLayout() {
-        for (k in LAYOUT_BOOLS) MatrixDataStore.putBoolean(keyOf(k), true)
-        for (i in LAYOUT_INTS.indices) MatrixDataStore.putInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
-        MatrixDataStore.putString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
-        MatrixDataStore.putBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
+        for (k in LAYOUT_BOOLS) MatrixDataStore.putBoolean(k, true)
+        for (i in LAYOUT_INTS.indices) MatrixDataStore.putInt(LAYOUT_INTS[i], LAYOUT_INT_DEFS[i])
+        MatrixDataStore.putString("title", LAYOUT_TITLE_DEFAULT)
+        MatrixDataStore.putBoolean("hudDynamic", MatrixDataStore.HUD_DYNAMIC_DEFAULT)
         onLayoutChange(null)
         onChanged()
-        toast(context, "New config for " + if (editingLock) "LOCK" else "HOME")
+        toast(context, "New config")
     }
 
-    Text("Layouts (apply to edited screen)")
+    Text("Layouts")
     Button(onClick = { showPicker = true }, modifier = Modifier.fillMaxWidth()) {
         Text(currentLayout ?: "(unsaved layout)")
     }
@@ -1058,7 +1072,7 @@ private fun LayoutsRow(
         } else {
             AlertDialog(
                     onDismissRequest = { showPicker = false },
-                    title = { Text("Load layout into " + if (editingLock) "LOCK" else "HOME") },
+                    title = { Text("Load layout") },
                     text = {
                         Column {
                             for (s in layouts) {
