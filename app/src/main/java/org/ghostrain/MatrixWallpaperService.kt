@@ -248,10 +248,9 @@ class MatrixWallpaperService : WallpaperService() {
 
         private fun lineFor(key: String, locked: Boolean): String? {
             return when (key) {
-                "title" -> {
-                    val tt = prefs.getString(HudPrefs.keyOf("title", locked), "KEEP//HUD")
-                    if (tt!!.isNotEmpty()) tt else null
-                }
+                "title" -> HudLines.titleOrNull(
+                    prefs.getString(HudPrefs.keyOf("title", locked), "KEEP//HUD")
+                )
                 "ram" -> {
                     try {
                         val total: Long
@@ -295,13 +294,11 @@ class MatrixWallpaperService : WallpaperService() {
                     } catch (_: Exception) { null }
                 }
                 "cpu" -> cpu()
-                "net" -> {
-                    if (locked && prefs.getBoolean(HudPrefs.keyOf("redactIp", locked), true)) "NET  [locked]"
-                    else {
-                        val ip = ip()
-                        "NET  ${ip ?: "--"}"
-                    }
-                }
+                "net" -> HudLines.netLine(
+                    ip(),
+                    locked = locked,
+                    redact = prefs.getBoolean(HudPrefs.keyOf("redactIp", locked), true)
+                )
                 "up" -> "UP   ${uptime()}"
                 else -> null
             }

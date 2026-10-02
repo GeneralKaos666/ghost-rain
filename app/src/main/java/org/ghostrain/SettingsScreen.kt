@@ -24,10 +24,15 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -50,6 +55,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import kotlin.math.roundToInt
 
 /**
  * Compose settings host: top bar, HOME/LOCK target tabs, and per-screen
@@ -80,6 +86,9 @@ fun SettingsScreen() {
     var editingLock by rememberSaveable { mutableStateOf(false) }
     var screenOpen by remember {
         mutableStateOf(prefs.getBoolean("ui_open_screen", true))
+    }
+    var hudOpen by remember {
+        mutableStateOf(prefs.getBoolean("ui_open_hud", true))
     }
     // Bumped on any pref write (controls in Tasks 5-6, layout ops below) and
     // on lifecycle resume (returning from the system wallpaper picker may have
@@ -149,7 +158,19 @@ fun SettingsScreen() {
                             onChanged = { prefsTick++ }
                     )
                 }
-                // TODO(Tasks 5-6: HUD + RAIN sections, keyed off editingLock)
+                item {
+                    HudSection(
+                            prefs = prefs,
+                            editingLock = editingLock,
+                            open = hudOpen,
+                            onToggle = {
+                                hudOpen = !hudOpen
+                                prefs.edit().putBoolean("ui_open_hud", hudOpen).apply()
+                            },
+                            onChanged = { prefsTick++ }
+                    )
+                }
+                // TODO(Task 6: RAIN section, global keys, keyed off nothing)
             }
         }
     }
@@ -303,6 +324,276 @@ private fun ScreenSection(
                 style = MaterialTheme.typography.bodySmall
         )
     }
+}
+
+/**
+ * HUD section: per-screen overlay config for whichever screen is being edited
+ * (HOME/LOCK via [editingLock]; every key goes through [HudPrefs.keyOf], so
+ * the LOCK variant is the base key plus a `Lock` suffix). Collapsible via the
+ * app-level `ui_open_hud` pref (open by default, like the legacy section).
+ *
+ * Title rule (single rule, used everywhere): empty-or-blank hides the title
+ * line — see [HudLines.titleOrNull], which the engine and the preview also
+ * use. The `order` pref is global; a reorder-save merges stored unknown
+ * tokens back via [HudPrefs.mergeOrderOnSave] so they are never deleted.
+ */
+@Composable
+private fun HudSection(
+        prefs: SharedPreferences,
+        editingLock: Boolean,
+        open: Boolean,
+        onToggle: () -> Unit,
+        onChanged: () -> Unit
+) {
+    fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
+    var showReset by remember { mutableStateOf(false) }
+    var showRedactConfirm by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+        Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                    "HUD",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f).clickable(onClick = onToggle)
+            )
+            TextButton(onClick = { showReset = true }) { Text("Reset") }
+            Text(
+                    if (open) "\u2212" else "+",
+                    modifier = Modifier.clickable(onClick = onToggle)
+            )
+        }
+        if (!open) return@Column
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Show HUD overlay", modifier = Modifier.weight(1f))
+            Switch(
+                    checked = prefs.getBoolean(keyOf("hud"), true),
+                    onCheckedChange = {
+                        prefs.edit().putBoolean(keyOf("hud"), it).apply()
+                        onChanged()
+                    }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+        Text("Title text:")
+        OutlinedTextField(
+                value = prefs.getString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
+                        ?: LAYOUT_TITLE_DEFAULT,
+                onValueChange = {
+                    prefs.edit().putString(keyOf("title"), it).apply()
+                    onChanged()
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+        )
+
+        HudSlider(
+                label = "Horizontal position",
+                value = prefs.getInt(keyOf("hudX"), 50),
+                min = 0,
+                max = 100,
+                suffix = "%",
+                onValue = {
+                    prefs.edit().putInt(keyOf("hudX"), it).apply()
+                    onChanged()
+                }
+        )
+        HudSlider(
+                label = "Vertical position",
+                value = prefs.getInt(keyOf("hudPos"), 50),
+                min = 0,
+                max = 100,
+                suffix = "%",
+                onValue = {
+                    prefs.edit().putInt(keyOf("hudPos"), it).apply()
+                    onChanged()
+                }
+        )
+        HudSlider(
+                label = "Size",
+                value = prefs.getInt(keyOf("hudScale"), 100),
+                min = 50,
+                max = 200,
+                suffix = "%",
+                onValue = {
+                    prefs.edit().putInt(keyOf("hudScale"), it).apply()
+                    onChanged()
+                }
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+        Text("HUD elements (check = show, arrows = reorder):")
+        val order = HudPrefs.orderKeys(prefs.getString("order", HudPrefs.DEFAULT_ORDER))
+        for ((idx, key) in order.withIndex()) {
+            val elKey = keyOf("el_$key")
+            ListItem(
+                    headlineContent = { Text(labelFor(key)) },
+                    trailingContent = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Switch(
+                                    checked = prefs.getBoolean(elKey, true),
+                                    onCheckedChange = {
+                                        prefs.edit().putBoolean(elKey, it).apply()
+                                        onChanged()
+                                    }
+                            )
+                            IconButton(
+                                    onClick = { moveOrder(order, idx, -1, prefs, onChanged) },
+                                    enabled = idx > 0
+                            ) { Text("\u25B2") }
+                            IconButton(
+                                    onClick = { moveOrder(order, idx, 1, prefs, onChanged) },
+                                    enabled = idx < order.size - 1
+                            ) { Text("\u25BC") }
+                        }
+                    }
+            )
+        }
+
+        Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Redact IP on lock screen", modifier = Modifier.weight(1f))
+            Switch(
+                    checked = prefs.getBoolean(keyOf("redactIp"), true),
+                    onCheckedChange = { checked ->
+                        if (checked) {
+                            prefs.edit().putBoolean(keyOf("redactIp"), true).apply()
+                            onChanged()
+                        } else {
+                            showRedactConfirm = true
+                        }
+                    }
+            )
+        }
+    }
+
+    if (showRedactConfirm) {
+        AlertDialog(
+                onDismissRequest = { showRedactConfirm = false },
+                title = { Text("Show IP on the lock screen?") },
+                text = {
+                    Text(
+                        "Not recommended. Your device IP will be visible to anyone " +
+                                "who can see your lock screen, without unlocking. Are you sure?"
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                            onClick = {
+                                prefs.edit().putBoolean(keyOf("redactIp"), false).apply()
+                                showRedactConfirm = false
+                                onChanged()
+                            }
+                    ) { Text("Show it anyway") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRedactConfirm = false }) {
+                        Text("Keep redacted")
+                    }
+                }
+        )
+    }
+    if (showReset) {
+        val screen = if (editingLock) "LOCK" else "HOME"
+        AlertDialog(
+                onDismissRequest = { showReset = false },
+                title = { Text("Reset $screen HUD to defaults?") },
+                text = {
+                    Text(
+                        "Restores position, size, title and element visibility for " +
+                                "the $screen screen."
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                            onClick = {
+                                val e = prefs.edit()
+                                for (k in LAYOUT_BOOLS) e.putBoolean(keyOf(k), true)
+                                for (i in LAYOUT_INTS.indices) {
+                                    e.putInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
+                                }
+                                e.putString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
+                                e.apply()
+                                showReset = false
+                                onChanged()
+                            }
+                    ) { Text("Reset") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showReset = false }) { Text("Cancel") }
+                }
+        )
+    }
+}
+
+/** Integer slider row backed by a per-screen int pref. */
+@Composable
+private fun HudSlider(
+        label: String,
+        value: Int,
+        min: Int,
+        max: Int,
+        suffix: String,
+        onValue: (Int) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text("$label: $value$suffix")
+        Slider(
+                value = value.toFloat(),
+                onValueChange = { onValue(it.roundToInt()) },
+                valueRange = min.toFloat()..max.toFloat(),
+                steps = (max - min - 1).coerceAtLeast(0),
+                modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+/** Display label for an HUD element key (mirrors the legacy element rows). */
+private fun labelFor(key: String): String {
+    return when (key) {
+        "title" -> "Title"
+        "ram" -> "RAM"
+        "disk" -> "Disk"
+        "bat" -> "Battery"
+        "cpu" -> "CPU"
+        "net" -> "Network / IP"
+        "up" -> "Uptime"
+        else -> key
+    }
+}
+
+/**
+ * Persist a reorder of the displayed element list. The stored `order` value is
+ * merged through [HudPrefs.mergeOrderOnSave] so unknown tokens survive the save.
+ */
+private fun moveOrder(
+        order: List<String>,
+        idx: Int,
+        dir: Int,
+        prefs: SharedPreferences,
+        onChanged: () -> Unit
+) {
+    val j = idx + dir
+    if (j < 0 || j >= order.size) return
+    val swapped = order.toMutableList()
+    val tmp = swapped[idx]
+    swapped[idx] = swapped[j]
+    swapped[j] = tmp
+    prefs.edit().putString(
+            "order",
+            HudPrefs.mergeOrderOnSave(swapped, prefs.getString("order", HudPrefs.DEFAULT_ORDER))
+    ).apply()
+    onChanged()
 }
 
 /**

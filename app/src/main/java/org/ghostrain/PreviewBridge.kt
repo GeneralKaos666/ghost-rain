@@ -34,18 +34,18 @@ internal fun previewLines(prefs: SharedPreferences, editingLock: Boolean): Array
         for (key in HudPrefs.orderKeys(prefs.getString("order", HudPrefs.DEFAULT_ORDER))) {
             if (!prefs.getBoolean(keyOf("el_$key"), true)) continue
             val line = when (key) {
-                "title" -> {
-                    val t = prefs.getString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
-                    if (!t.isNullOrEmpty()) t else null
-                }
+                "title" -> HudLines.titleOrNull(
+                    prefs.getString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
+                )
                 "ram" -> "RAM  [####\u00B7\u00B7\u00B7\u00B7] 62%"
                 "disk" -> "DISK [######\u00B7\u00B7] 92/128G"
                 "bat" -> "BAT  [#######\u00B7] 84% +"
                 "cpu" -> "CPU  [##\u00B7\u00B7\u00B7\u00B7\u00B7\u00B7] 18%"
-                "net" -> {
-                    val redact = prefs.getBoolean(keyOf("redactIp"), true)
-                    if (editingLock && redact) "NET  [locked]" else "NET  192.168.7.127"
-                }
+                "net" -> HudLines.netLine(
+                    "192.168.7.127",
+                    locked = editingLock,
+                    redact = prefs.getBoolean(keyOf("redactIp"), true)
+                )
                 "up" -> "UP   3d 04:12"
                 else -> null
             }

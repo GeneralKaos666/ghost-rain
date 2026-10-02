@@ -42,6 +42,22 @@ object HudPrefs {
         for (k in defaultOrder) if (k !in keys) keys.add(k)
         return keys
     }
+
+    /**
+     * Persist a reordered display list without losing stored unknown tokens:
+     * [displayed] (built from [orderKeys], which drops unknowns) is kept in
+     * order, then any stored tokens that are neither canonical nor already in
+     * the displayed list are appended verbatim (trimmed, deduped) in stored
+     * order. A reorder-save must never delete tokens the UI cannot show.
+     */
+    fun mergeOrderOnSave(displayed: List<String>, storedRaw: String?): String {
+        val out = displayed.toMutableList()
+        storedRaw?.split(",")?.forEach { k ->
+            val tk = k.trim()
+            if (tk.isNotEmpty() && tk !in defaultOrder && tk !in out) out.add(tk)
+        }
+        return out.joinToString(",")
+    }
 }
 
 /**
@@ -56,4 +72,11 @@ object HudLines {
      */
     fun titleOrNull(raw: String?): String? =
             if (raw.isNullOrBlank()) null else raw
+
+    /**
+     * The NET line: `[locked]` on the real lock screen when redaction is on,
+     * otherwise the IP (or `--` when none was detected).
+     */
+    fun netLine(ip: String?, locked: Boolean, redact: Boolean): String =
+            if (locked && redact) "NET  [locked]" else "NET  ${ip ?: "--"}"
 }
