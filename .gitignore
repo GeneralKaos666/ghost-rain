@@ -19,3 +19,4 @@ app/keystore
 workspace.json
 gradlew
 my-release-key.jks
+/.worktrees/
