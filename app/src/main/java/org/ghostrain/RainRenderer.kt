@@ -58,27 +58,13 @@ data class RainSettings(
 
         /**
          * Pure-JVM twin of [fromPrefs] for the unit-test source set and the
-         * Compose UI (Tasks 4-5): same keys, same defaults, same clamping
-         * (min/max swap, fps 10-60). Glyph flags have no `Int` representation,
-         * so they keep the [fromPrefs] defaults (all enabled).
+         * Compose UI (Tasks 4-5): delegates to [fromSnapshot] (`Map` is
+         * covariant in its value type, so this is a direct call), keeping
+         * one copy of the keys, defaults, and clamping (min/max swap, fps
+         * 10-60). Glyph flags have no `Int` representation, so absent keys
+         * fall back to the [fromSnapshot] defaults (all enabled).
          */
-        fun fromMap(m: Map<String, Int>): RainSettings {
-            val rawMin = (m["rainMinLen"] ?: 6).coerceIn(1, 50)
-            val rawMax = (m["rainMaxLen"] ?: 32).coerceIn(1, 50)
-            val fps = (m["rainFps"] ?: 30).coerceIn(10, 60)
-            return RainSettings(
-                    speedMul = (m["rainSpeed"] ?: 100) / 100f,
-                    hue = (m["rainHue"] ?: 120).coerceIn(0, 360),
-                    fontSizeMul = (m["rainFontSize"] ?: 100) / 100f,
-                    glyphKatakana = true,
-                    glyphDigits = true,
-                    glyphLatin = true,
-                    glyphSymbols = true,
-                    minLen = minOf(rawMin, rawMax),
-                    maxLen = maxOf(rawMin, rawMax),
-                    shimmer = (m["shimmer"] ?: 60) / 100f,
-                    frameDelayMs = (1000f / fps).roundToInt().coerceIn(16, 100))
-        }
+        fun fromMap(m: Map<String, Int>): RainSettings = fromSnapshot(m)
     }
 }
 

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -52,8 +53,11 @@ import kotlin.math.roundToInt
 fun RainPreview(
         editingLock: Boolean,
         animating: Boolean,
+        snapshotVersion: Int,
         modifier: Modifier = Modifier
 ) {
+    @Suppress("UNUSED_EXPRESSION")
+    snapshotVersion // structural refresh token: bumped on any pref write
     fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
     val px = MatrixDataStore.getInt(keyOf("hudX"), 50) / 100f
     val py = MatrixDataStore.getInt(keyOf("hudPos"), 50) / 100f
@@ -76,7 +80,13 @@ fun RainPreview(
     val aspect = sw / maxOf(1, sh).toFloat()
     fun dp(d: Float): Int = (d * density).roundToInt()
 
-    val renderer = remember(density) { RainRenderer(density) }
+    // Sentinel outside the density key: reset it here so a fresh renderer
+    // from a density change always gets resize() before its first draw.
+    val lastFontSizeMul = remember { floatArrayOf(-1f) }
+    val renderer = remember(density) {
+        lastFontSizeMul[0] = -1f
+        RainRenderer(density)
+    }
     val vt = remember {
         try {
             Typeface.createFromAsset(context.assets, "VT323-Regular.ttf")
@@ -116,16 +126,18 @@ fun RainPreview(
         }
     }
 
-    // Non-snapshot holders mutated from the draw block (writing snapshot
+    // Non-snapshot holder mutated from the draw block (writing snapshot
     // state during draw is disallowed, plain remembered holders are fine).
-    val lastFontSizeMul = remember { floatArrayOf(-1f) }
     val lastDraw = remember { longArrayOf(0L) }
-    lineP.color = previewText.toArgb()
-    box.color = previewText.toArgb()
-    boxFill.color = previewFill.toArgb()
-    if (rain.fontSizeMul != lastFontSizeMul[0]) {
-        lastFontSizeMul[0] = rain.fontSizeMul
-        renderer.resize(sw, sh, rain)
+    val previewTextArgb = previewText.toArgb()
+    val previewFillArgb = previewFill.toArgb()
+    // resize() is a side effect: keep it out of the composable body so a
+    // density/font-size change resizes once per commit, not per compose.
+    SideEffect {
+        if (rain.fontSizeMul != lastFontSizeMul[0]) {
+            lastFontSizeMul[0] = rain.fontSizeMul
+            renderer.resize(sw, sh, rain)
+        }
     }
 
     // Frame driver: bump tick every frameDelayMs while animating. Keyed on
@@ -171,6 +183,9 @@ fun RainPreview(
             c.restoreToCount(save)
 
             if (lines.isEmpty()) return@drawIntoCanvas
+            lineP.color = previewTextArgb
+            box.color = previewTextArgb
+            boxFill.color = previewFillArgb
             val textSize = density * 13f * 1.05f * scale
             meas.textSize = textSize
             var panelW = 0f

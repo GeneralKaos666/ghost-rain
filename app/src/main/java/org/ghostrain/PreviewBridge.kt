@@ -73,12 +73,16 @@ internal fun previewLines(editingLock: Boolean): Array<String> {
 fun PreviewBridge(
         editingLock: Boolean,
         animating: Boolean,
+        snapshotVersion: Int,
         modifier: Modifier = Modifier
 ) {
+    @Suppress("UNUSED_EXPRESSION")
+    snapshotVersion // forwarded: structural preview refresh token
     Card(modifier = modifier.fillMaxWidth()) {
         RainPreview(
                 editingLock = editingLock,
                 animating = animating,
+                snapshotVersion = snapshotVersion,
                 modifier = Modifier.fillMaxWidth().height(190.dp)
         )
     }

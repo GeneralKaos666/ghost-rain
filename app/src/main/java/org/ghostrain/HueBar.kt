@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -79,6 +80,10 @@ fun HueBar(
     // View width in px for the touch mapping (same value the draw block sees
     // as size.width once laid out).
     var widthPx by remember { mutableFloatStateOf(0f) }
+    // Latest values for the drag closure: pointerInput is keyed on widthPx,
+    // so without these the mid-drag emitHue would use a stale hue/callback.
+    val latestCoerced by rememberUpdatedState(coerced)
+    val latestOnHue by rememberUpdatedState(onHue)
     fun emitHue(x: Float) {
         if (widthPx <= 0f) return
         val barL = (thumbR + edge).toFloat()
@@ -86,7 +91,7 @@ fun HueBar(
         if (barR <= barL) return
         val newHue = (360 * (x.coerceIn(barL, barR) - barL) / (barR - barL))
                 .roundToInt().coerceIn(0, 360)
-        if (newHue != coerced) onHue(newHue)
+        if (newHue != latestCoerced) latestOnHue(newHue)
     }
 
     Canvas(

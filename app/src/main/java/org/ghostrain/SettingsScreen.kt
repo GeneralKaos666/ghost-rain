@@ -148,6 +148,7 @@ fun SettingsScreen() {
                             editingLock = editingLock,
                             open = screenOpen,
                             animating = screenOpen && resumed,
+                            snapshotVersion = prefsTick,
                             onToggle = {
                                 screenOpen = !screenOpen
                                 MatrixDataStore.putBoolean("ui_open_screen", screenOpen)
@@ -357,6 +358,7 @@ private fun ScreenSection(
         editingLock: Boolean,
         open: Boolean,
         animating: Boolean,
+        snapshotVersion: Int,
         onToggle: () -> Unit,
         onChanged: () -> Unit,
         currentLayout: String?,
@@ -374,7 +376,8 @@ private fun ScreenSection(
         Spacer(modifier = Modifier.height(8.dp))
         PreviewBridge(
                 editingLock = editingLock,
-                animating = animating
+                animating = animating,
+                snapshotVersion = snapshotVersion
         )
         Spacer(modifier = Modifier.height(8.dp))
         LayoutsRow(
