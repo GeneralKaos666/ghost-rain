@@ -59,7 +59,6 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.launch
@@ -88,9 +87,8 @@ import kotlin.math.roundToInt
 @Composable
 fun SettingsScreen() {
     val context = LocalContext.current
-    val activity = context as SettingsActivity
     val prefs = remember {
-        activity.getSharedPreferences("matrix", Context.MODE_PRIVATE)
+        context.getSharedPreferences("matrix", Context.MODE_PRIVATE)
     }
     var editingLock by rememberSaveable { mutableStateOf(false) }
     var screenOpen by remember {
@@ -150,7 +148,6 @@ fun SettingsScreen() {
                 }
                 item {
                     ScreenSection(
-                            activity = activity,
                             prefs = prefs,
                             editingLock = editingLock,
                             open = screenOpen,
@@ -181,7 +178,6 @@ fun SettingsScreen() {
                 }
                 item {
                     RainSection(
-                            activity = activity,
                             prefs = prefs,
                             open = rainOpen,
                             onToggle = {
@@ -363,7 +359,6 @@ private fun SectionHeader(
  */
 @Composable
 private fun ScreenSection(
-        activity: SettingsActivity,
         prefs: SharedPreferences,
         editingLock: Boolean,
         open: Boolean,
@@ -384,7 +379,6 @@ private fun ScreenSection(
         Text("Editing screen: " + if (editingLock) "LOCK" else "HOME")
         Spacer(modifier = Modifier.height(8.dp))
         PreviewBridge(
-                activity = activity,
                 prefs = prefs,
                 editingLock = editingLock,
                 animating = animating
@@ -681,12 +675,11 @@ private fun resetRain(prefs: SharedPreferences) {
  * section). Slider/switch writes go straight to prefs; the listener in
  * [SettingsScreen] recomposes on any write, so [PreviewBridge] (which reads
  * [RainSettings.fromPrefs] every recomposition) reflects changes instantly —
- * including [SettingsActivity.HuePicker] drags, which write `rainHue` to the
+ * including [HueBar] drags, which write `rainHue` to the
  * same prefs file directly.
  */
 @Composable
 private fun RainSection(
-        activity: SettingsActivity,
         prefs: SharedPreferences,
         open: Boolean,
         onToggle: () -> Unit,
@@ -749,17 +742,13 @@ private fun RainSection(
         val hue = prefs.getInt("rainHue", 120)
         Spacer(modifier = Modifier.height(4.dp))
         Text("Rain color hue:  $hue\u00B0")
-        AndroidView(
-                factory = { ctx ->
-                    activity.HuePicker(ctx, hue, null, onHue = onChanged).apply {
-                        contentDescription = "Rain color hue picker, $hue degrees"
-                    }
+        HueBar(
+                hue = hue,
+                onHue = {
+                    prefs.edit().putInt("rainHue", it).apply()
+                    onChanged()
                 },
-                update = { view ->
-                    view.setHue(hue)
-                    view.contentDescription = "Rain color hue picker, $hue degrees"
-                },
-                modifier = Modifier.fillMaxWidth().height(48.dp)
+                modifier = Modifier.fillMaxWidth()
         )
 
         HudSlider(

@@ -8,7 +8,6 @@ import androidx.compose.material3.Card
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 
 /**
  * Screen-agnostic layout keys (a layout = a snapshot of these for one
@@ -56,39 +55,29 @@ internal fun previewLines(prefs: SharedPreferences, editingLock: Boolean): Array
 }
 
 /**
- * Live preview bridge: embeds the legacy [SettingsActivity.PreviewView] via
- * [AndroidView] inside a [Card] and feeds it the current per-screen HUD
- * geometry plus [RainSettings] on every recomposition. The prefs listener in
- * [SettingsScreen] recomposes on any pref write, so slider/toggle edits (Tasks
- * 5-6) refresh the preview through this path.
+ * Live preview bridge (Task 8, Phase 2): pure Compose [RainPreview] inside a
+ * [Card], fed by the current per-screen HUD geometry plus [RainSettings] on
+ * every recomposition. The prefs listener in [SettingsScreen] recomposes on
+ * any pref write, so slider/toggle edits refresh the preview through this
+ * path. No `AndroidView` remains: the legacy `PreviewView` is deleted.
  *
  * @param animating rain loop on/off; the caller passes
  * `screenOpen && resumed` (SCREEN-section open state + activity lifecycle).
- * [SettingsActivity.PreviewView] already stops its handler on detach, so
- * removing this node (collapsing SCREEN) halts the loop with no leak.
+ * [RainPreview] cancels its frame loop when this node leaves the composition
+ * (collapsing SCREEN), so there is no leak.
  */
 @Composable
 fun PreviewBridge(
-        activity: SettingsActivity,
         prefs: SharedPreferences,
         editingLock: Boolean,
         animating: Boolean,
         modifier: Modifier = Modifier
 ) {
-    fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
-    val px = prefs.getInt(keyOf("hudX"), 50) / 100f
-    val py = prefs.getInt(keyOf("hudPos"), 50) / 100f
-    val scale = prefs.getInt(keyOf("hudScale"), 100) / 100f
-    val lines = previewLines(prefs, editingLock)
-    val rain = RainSettings.fromPrefs(prefs)
     Card(modifier = modifier.fillMaxWidth()) {
-        AndroidView(
-                factory = { ctx -> activity.PreviewView(ctx) },
-                update = { view ->
-                    view.set(px, py, scale, lines)
-                    view.setRain(rain)
-                    view.setAnimating(animating)
-                },
+        RainPreview(
+                prefs = prefs,
+                editingLock = editingLock,
+                animating = animating,
                 modifier = Modifier.fillMaxWidth().height(190.dp)
         )
     }
