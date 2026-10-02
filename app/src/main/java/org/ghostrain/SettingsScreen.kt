@@ -875,8 +875,11 @@ private fun HudSlider(
         onValue: (Int) -> Unit
 ) {
     var pressed by remember { mutableStateOf(false) }
+    // Reduced motion: keep the live value label, skip the pop scale.
+    val context = LocalContext.current
+    val reduceMotion = remember(context) { animationsReduced(context) }
     val labelScale by animateFloatAsState(
-            targetValue = if (pressed) 1.12f else 1f,
+            targetValue = if (pressed && !reduceMotion) 1.12f else 1f,
             animationSpec = spring(stiffness = Spring.StiffnessMedium),
             label = "sliderLabel"
     )

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package org.ghostrain
 
+import android.content.Context
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
+import android.provider.Settings
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -32,6 +34,21 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
 /**
+ * True when the user disabled system animations (animator duration scale 0):
+ * press-feedback springs keep their state indication but skip the scale.
+ */
+internal fun animationsReduced(context: Context): Boolean {
+    return try {
+        Settings.Global.getFloat(
+                context.contentResolver,
+                Settings.Global.ANIMATOR_DURATION_SCALE, 1f
+        ) == 0f
+    } catch (_: Exception) {
+        false
+    }
+}
+
+/**
  * Pure-Compose hue picker (Task 8, Phase 2). Replaces the legacy
  * `SettingsActivity.HuePicker` view with a Compose [Canvas] using the same
  * geometry and paint values: an 18dp HSV gradient bar (seven stops, red at
@@ -55,6 +72,20 @@ fun HueBar(
     val density = LocalContext.current.resources.displayMetrics.density
     fun dpPx(d: Float): Int = (d * density).roundToInt()
     val coerced = hue.coerceIn(0, 360)
+    val context = LocalContext.current
+    // Constant gradient stops (same seven hues the legacy view used): hoisted
+    // so thumb-swell animation frames don't allocate per draw. The shader
+    // itself depends on width, so it is rebuilt only when the width changes
+    // (plain holders, not state — writing state during draw is disallowed).
+    val gradientColors = remember {
+        IntArray(7) { i -> Color.HSVToColor(255, floatArrayOf(i * 60f, 1f, 1f)) }
+    }
+    val gradientStops = remember {
+        floatArrayOf(0f, 1f / 6f, 2f / 6f, 3f / 6f, 4f / 6f, 5f / 6f, 1f)
+    }
+    val shaderCache = remember { arrayOfNulls<Shader>(1) }
+    val shaderWidth = remember { floatArrayOf(-1f) }
+    val dotPaint = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
 
     val thumbR = dpPx(10f)
     val edge = dpPx(3f)
@@ -91,8 +122,10 @@ fun HueBar(
     // Expressive press feedback: the thumb swells on touch and settles back
     // on a spring, matching the M3 slider treatment in SettingsScreen.
     var pressed by remember { mutableStateOf(false) }
+    // Reduced motion: keep the hue update (state indication), skip the swell.
+    val reduceMotion = remember(context) { animationsReduced(context) }
     val thumbScale by animateFloatAsState(
-            if (pressed) 1.35f else 1f,
+            if (pressed && !reduceMotion) 1.35f else 1f,
             spring(stiffness = Spring.StiffnessMedium),
             label = "hueThumb"
     )
@@ -141,23 +174,21 @@ fun HueBar(
         val thumbPx = thumbR * thumbScale
         drawIntoCanvas { nv ->
             val c = nv.nativeCanvas
-            val colors = IntArray(7) { i ->
-                Color.HSVToColor(255, floatArrayOf(i * 60f, 1f, 1f))
+            if (shaderWidth[0] != w) {
+                shaderWidth[0] = w
+                shaderCache[0] = LinearGradient(
+                        0f, 0f, w, 0f, gradientColors, gradientStops, Shader.TileMode.CLAMP
+                )
             }
-            val pos = floatArrayOf(0f, 1f / 6f, 2f / 6f, 3f / 6f, 4f / 6f, 5f / 6f, 1f)
-            barPaint.shader = LinearGradient(
-                    0f, 0f, w, 0f, colors, pos, Shader.TileMode.CLAMP
-            )
+            barPaint.shader = shaderCache[0]
             c.drawRoundRect(barL, barTop, barR, barTop + barH, corner, corner, barPaint)
             c.drawRoundRect(barL, barTop, barR, barTop + barH, corner, corner, borderPaint)
 
             c.drawCircle(thumbCX, cy, thumbPx, thumbFill)
             c.drawCircle(thumbCX, cy, thumbPx, thumbStroke)
 
-            val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.HSVToColor(255, floatArrayOf(coerced.toFloat(), 1f, 1f))
-            }
-            c.drawCircle(thumbCX, cy, thumbPx * 0.45f, dot)
+            dotPaint.color = Color.HSVToColor(255, floatArrayOf(coerced.toFloat(), 1f, 1f))
+            c.drawCircle(thumbCX, cy, thumbPx * 0.45f, dotPaint)
         }
     }
 }
