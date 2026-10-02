@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.AlertDialog
@@ -29,12 +30,14 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -46,22 +49,25 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
- * Compose settings host: top bar, HOME/LOCK target tabs, and per-screen
- * sections. Task 4 owns the SETUP status card, the wallpaper button, and the
- * SCREEN section (live [PreviewBridge] + [LayoutsRow]); Tasks 5-6 add the
- * HUD/RAIN controls below.
+ * Compose settings host: top bar, HOME/LOCK target switch, and per-screen
+ * sections. SETUP + SCREEN came from Task 4, HUD from Task 5, RAIN from Task 6.
  *
  * Restoration notes (legacy `SettingsActivity` behavior, kept verbatim):
  * - The SET button writes `lastAppliedVersion` optimistically before launching
@@ -72,8 +78,11 @@ import kotlin.math.roundToInt
  *   per version via `updatePromptDismissed`), then nothing.
  * - Layouts round-trip the same `layouts` JSON via [LayoutsRepo].
  *
- * @param editingLock which screen is being edited; survives rotation via
- * [rememberSaveable].
+ * The rain loop runs only while SCREEN is open and the activity is resumed.
+ *
+ * State notes: `editingLock` (which screen is being edited) survives rotation
+ * via [rememberSaveable]; section open/closed states persist in the app-level
+ * `ui_open_*` prefs (RAIN collapsed by default, like the legacy section).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,6 +98,9 @@ fun SettingsScreen() {
     }
     var hudOpen by remember {
         mutableStateOf(prefs.getBoolean("ui_open_hud", true))
+    }
+    var rainOpen by remember {
+        mutableStateOf(prefs.getBoolean("ui_open_rain", false))
     }
     // Which named layout the SCREEN row shows as loaded. Hoisted here (not in
     // LayoutsRow) so the HUD Reset — a sibling section — can clear the label,
@@ -131,18 +143,7 @@ fun SettingsScreen() {
         Column(
                 modifier = Modifier.fillMaxSize().padding(padding)
         ) {
-            TabRow(selectedTabIndex = if (editingLock) 1 else 0) {
-                Tab(
-                        selected = !editingLock,
-                        onClick = { editingLock = false },
-                        text = { Text("HOME") }
-                )
-                Tab(
-                        selected = editingLock,
-                        onClick = { editingLock = true },
-                        text = { Text("LOCK") }
-                )
-            }
+            TargetSwitch(editingLock = editingLock, onChange = { editingLock = it })
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 item {
                     SetupCard(prefs, prefsTick, resumed, onChanged = { prefsTick++ })
@@ -158,7 +159,6 @@ fun SettingsScreen() {
                                 screenOpen = !screenOpen
                                 prefs.edit().putBoolean("ui_open_screen", screenOpen).apply()
                             },
-                            onEditingLockChange = { editingLock = it },
                             onChanged = { prefsTick++ },
                             currentLayout = currentLayout,
                             onLayoutChange = { currentLayout = it }
@@ -174,12 +174,54 @@ fun SettingsScreen() {
                                 prefs.edit().putBoolean("ui_open_hud", hudOpen).apply()
                             },
                             onChanged = { prefsTick++ },
-                            onLayoutCleared = { currentLayout = null }
+                            snacks = snacks,
+                            currentLayout = currentLayout,
+                            onLayoutChange = { currentLayout = it }
                     )
                 }
-                // TODO(Task 6: RAIN section, global keys, keyed off nothing)
+                item {
+                    RainSection(
+                            activity = activity,
+                            prefs = prefs,
+                            open = rainOpen,
+                            onToggle = {
+                                rainOpen = !rainOpen
+                                prefs.edit().putBoolean("ui_open_rain", rainOpen).apply()
+                            },
+                            onChanged = { prefsTick++ },
+                            snacks = snacks
+                    )
+                }
             }
         }
+    }
+}
+
+/**
+ * Global HOME/LOCK target switch: a Material3 single-choice segmented button
+ * (48dp targets, text labels double as TalkBack descriptions). One switcher
+ * for the whole screen; the per-section duplicate from the early Compose port
+ * is gone — legacy had a single toggle too (inside SCREEN).
+ */
+@Composable
+private fun TargetSwitch(editingLock: Boolean, onChange: (Boolean) -> Unit) {
+    SingleChoiceSegmentedButtonRow(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        SegmentedButton(
+                selected = !editingLock,
+                onClick = { onChange(false) },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                modifier = Modifier.heightIn(min = 48.dp),
+                label = { Text("HOME") }
+        )
+        SegmentedButton(
+                selected = editingLock,
+                onClick = { onChange(true) },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                modifier = Modifier.heightIn(min = 48.dp),
+                label = { Text("LOCK") }
+        )
     }
 }
 
@@ -275,9 +317,49 @@ private fun StatusCard(text: String, dismissLabel: String? = null, onDismiss: ()
 }
 
 /**
- * SCREEN section: collapsible (state in app-level `ui_open_screen`), HOME/LOCK
- * target toggle, live [PreviewBridge], and [LayoutsRow]. The rain loop runs
- * only while the section is open and the activity is resumed.
+ * Shared collapsible-section header: title, optional Reset action, and a 48dp
+ * expand/collapse [IconButton] with a TalkBack description. The title itself
+ * is also tappable (large target); both toggle the section.
+ */
+@Composable
+private fun SectionHeader(
+        title: String,
+        open: Boolean,
+        onToggle: () -> Unit,
+        resetDescription: String? = null,
+        onReset: (() -> Unit)? = null
+) {
+    Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f).clickable(onClick = onToggle)
+        )
+        if (onReset != null) {
+            TextButton(
+                    onClick = onReset,
+                    modifier = Modifier.semantics {
+                        contentDescription = resetDescription ?: "Reset $title to defaults"
+                    }
+            ) { Text("Reset") }
+        }
+        IconButton(
+                onClick = onToggle,
+                modifier = Modifier.semantics {
+                    contentDescription = if (open) "Collapse $title section" else "Expand $title section"
+                }
+        ) { Text(if (open) "\u2212" else "+") }
+    }
+}
+
+/**
+ * SCREEN section: collapsible (state in app-level `ui_open_screen`), live
+ * [PreviewBridge], and [LayoutsRow]. The edited-screen target is the global
+ * [TargetSwitch] above; this section just shows which screen is being edited.
+ * The rain loop runs only while the section is open and the activity is resumed.
  */
 @Composable
 private fun ScreenSection(
@@ -287,38 +369,19 @@ private fun ScreenSection(
         open: Boolean,
         animating: Boolean,
         onToggle: () -> Unit,
-        onEditingLockChange: (Boolean) -> Unit,
         onChanged: () -> Unit,
         currentLayout: String?,
         onLayoutChange: (String?) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-        Row(
-                modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle),
-                verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                    "SCREEN (HOME / LOCK)",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f)
-            )
-            Text(if (open) "\u2212" else "+")
-        }
+        SectionHeader(
+                title = "SCREEN (HOME / LOCK)",
+                open = open,
+                onToggle = onToggle
+        )
         if (!open) return@Column
         Spacer(modifier = Modifier.height(4.dp))
-        Text("Editing screen:")
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                    onClick = { onEditingLockChange(false) },
-                    enabled = editingLock,
-                    modifier = Modifier.weight(1f)
-            ) { Text("HOME") }
-            Button(
-                    onClick = { onEditingLockChange(true) },
-                    enabled = !editingLock,
-                    modifier = Modifier.weight(1f)
-            ) { Text("LOCK") }
-        }
+        Text("Editing screen: " + if (editingLock) "LOCK" else "HOME")
         Spacer(modifier = Modifier.height(8.dp))
         PreviewBridge(
                 activity = activity,
@@ -359,28 +422,23 @@ private fun HudSection(
         open: Boolean,
         onToggle: () -> Unit,
         onChanged: () -> Unit,
-        onLayoutCleared: () -> Unit
+        snacks: SnackbarHostState,
+        currentLayout: String?,
+        onLayoutChange: (String?) -> Unit
 ) {
     fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
     var showReset by remember { mutableStateOf(false) }
     var showRedactConfirm by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-        Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                    "HUD",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f).clickable(onClick = onToggle)
-            )
-            TextButton(onClick = { showReset = true }) { Text("Reset") }
-            Text(
-                    if (open) "\u2212" else "+",
-                    modifier = Modifier.clickable(onClick = onToggle)
-            )
-        }
+        SectionHeader(
+                title = "HUD",
+                open = open,
+                onToggle = onToggle,
+                resetDescription = "Reset HUD to defaults",
+                onReset = { showReset = true }
+        )
         if (!open) return@Column
         Spacer(modifier = Modifier.height(4.dp))
 
@@ -463,11 +521,17 @@ private fun HudSection(
                             )
                             IconButton(
                                     onClick = { moveOrder(order, idx, -1, prefs, onChanged) },
-                                    enabled = idx > 0
+                                    enabled = idx > 0,
+                                    modifier = Modifier.semantics {
+                                        contentDescription = "Move ${labelFor(key)} up"
+                                    }
                             ) { Text("\u25B2") }
                             IconButton(
                                     onClick = { moveOrder(order, idx, 1, prefs, onChanged) },
-                                    enabled = idx < order.size - 1
+                                    enabled = idx < order.size - 1,
+                                    modifier = Modifier.semantics {
+                                        contentDescription = "Move ${labelFor(key)} down"
+                                    }
                             ) { Text("\u25BC") }
                         }
                     }
@@ -533,6 +597,7 @@ private fun HudSection(
                 confirmButton = {
                     TextButton(
                             onClick = {
+                                val prev = snapshotHud(prefs, editingLock, currentLayout)
                                 val e = prefs.edit()
                                 for (k in LAYOUT_BOOLS) e.putBoolean(keyOf(k), true)
                                 for (i in LAYOUT_INTS.indices) {
@@ -541,8 +606,18 @@ private fun HudSection(
                                 e.putString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
                                 e.apply()
                                 showReset = false
-                                onLayoutCleared()
+                                onLayoutChange(null)
                                 onChanged()
+                                scope.launch {
+                                    if (snacks.showSnackbar(
+                                            "HUD reset to defaults",
+                                            "Undo"
+                                    ) == SnackbarResult.ActionPerformed) {
+                                        restoreHud(prefs, editingLock, prev)
+                                        onLayoutChange(prev.layoutName)
+                                        onChanged()
+                                    }
+                                }
                             }
                     ) { Text("Reset") }
                 },
@@ -553,7 +628,252 @@ private fun HudSection(
     }
 }
 
-/** Integer slider row backed by a per-screen int pref. */
+/** Rain pref keys with their legacy defaults (global, not per-screen). */
+private val RAIN_INT_DEFS = mapOf(
+        "shimmer" to 60,
+        "rainSpeed" to 100,
+        "rainHue" to 120,
+        "rainFontSize" to 100,
+        "rainMinLen" to 6,
+        "rainMaxLen" to 32,
+        "rainFps" to 30
+)
+private val RAIN_GLYPH_KEYS = arrayOf("glyphKatakana", "glyphDigits", "glyphLatin", "glyphSymbols")
+
+/**
+ * Color presets. Each writes `rainHue` + `shimmer` only — every other rain key
+ * is left untouched. Classic is the legacy default pair.
+ */
+private val RAIN_PRESETS = arrayOf(
+        Triple("Classic", 120, 60),
+        Triple("Amber", 35, 70),
+        Triple("Ice", 200, 50)
+)
+
+/** Snapshot of all rain prefs, for Reset Undo. */
+private data class RainSnapshot(val ints: Map<String, Int>, val glyphs: Map<String, Boolean>)
+
+private fun snapshotRain(prefs: SharedPreferences): RainSnapshot {
+    val ints = LinkedHashMap<String, Int>()
+    for ((k, d) in RAIN_INT_DEFS) ints[k] = prefs.getInt(k, d)
+    val glyphs = LinkedHashMap<String, Boolean>()
+    for (k in RAIN_GLYPH_KEYS) glyphs[k] = prefs.getBoolean(k, true)
+    return RainSnapshot(ints, glyphs)
+}
+
+private fun restoreRain(prefs: SharedPreferences, snap: RainSnapshot) {
+    val e = prefs.edit()
+    for ((k, v) in snap.ints) e.putInt(k, v)
+    for ((k, v) in snap.glyphs) e.putBoolean(k, v)
+    e.apply()
+}
+
+private fun resetRain(prefs: SharedPreferences) {
+    val e = prefs.edit()
+    for ((k, d) in RAIN_INT_DEFS) e.putInt(k, d)
+    for (k in RAIN_GLYPH_KEYS) e.putBoolean(k, true)
+    e.apply()
+}
+
+/**
+ * RAIN section: global (not per-screen) matrix-rain config. Collapsible via the
+ * app-level `ui_open_rain` pref (collapsed by default, like the legacy
+ * section). Slider/switch writes go straight to prefs; the listener in
+ * [SettingsScreen] recomposes on any write, so [PreviewBridge] (which reads
+ * [RainSettings.fromPrefs] every recomposition) reflects changes instantly —
+ * including [SettingsActivity.HuePicker] drags, which write `rainHue` to the
+ * same prefs file directly.
+ */
+@Composable
+private fun RainSection(
+        activity: SettingsActivity,
+        prefs: SharedPreferences,
+        open: Boolean,
+        onToggle: () -> Unit,
+        onChanged: () -> Unit,
+        snacks: SnackbarHostState
+) {
+    var showReset by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+        SectionHeader(
+                title = "RAIN (global)",
+                open = open,
+                onToggle = onToggle,
+                resetDescription = "Reset rain to defaults",
+                onReset = { showReset = true }
+        )
+        if (!open) return@Column
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Text("Preset (color + shimmer only):")
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for ((name, hue, shimmer) in RAIN_PRESETS) {
+                Button(
+                        onClick = {
+                            prefs.edit()
+                                    .putInt("rainHue", hue)
+                                    .putInt("shimmer", shimmer)
+                                    .apply()
+                            onChanged()
+                        },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                ) { Text(name) }
+            }
+        }
+
+        HudSlider(
+                label = "Glyph shimmer (both screens)",
+                value = prefs.getInt("shimmer", 60),
+                min = 0,
+                max = 100,
+                suffix = "%",
+                onValue = {
+                    prefs.edit().putInt("shimmer", it).apply()
+                    onChanged()
+                }
+        )
+        HudSlider(
+                label = "Rain speed",
+                value = prefs.getInt("rainSpeed", 100),
+                min = 10,
+                max = 300,
+                suffix = "%",
+                onValue = {
+                    prefs.edit().putInt("rainSpeed", it).apply()
+                    onChanged()
+                }
+        )
+
+        val hue = prefs.getInt("rainHue", 120)
+        Spacer(modifier = Modifier.height(4.dp))
+        Text("Rain color hue:  $hue\u00B0")
+        AndroidView(
+                factory = { ctx ->
+                    activity.HuePicker(ctx, hue, null).apply {
+                        contentDescription = "Rain color hue picker, $hue degrees"
+                    }
+                },
+                update = { view ->
+                    view.setHue(hue)
+                    view.contentDescription = "Rain color hue picker, $hue degrees"
+                },
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+        )
+
+        HudSlider(
+                label = "Glyph font size",
+                value = prefs.getInt("rainFontSize", 100),
+                min = 50,
+                max = 200,
+                suffix = "%",
+                onValue = {
+                    prefs.edit().putInt("rainFontSize", it).apply()
+                    onChanged()
+                }
+        )
+        HudSlider(
+                label = "Column min length",
+                value = prefs.getInt("rainMinLen", 6),
+                min = 1,
+                max = 50,
+                suffix = "",
+                onValue = {
+                    prefs.edit().putInt("rainMinLen", it).apply()
+                    onChanged()
+                }
+        )
+        HudSlider(
+                label = "Column max length",
+                value = prefs.getInt("rainMaxLen", 32),
+                min = 1,
+                max = 50,
+                suffix = "",
+                onValue = {
+                    prefs.edit().putInt("rainMaxLen", it).apply()
+                    onChanged()
+                }
+        )
+        HudSlider(
+                label = "Frame rate",
+                value = prefs.getInt("rainFps", 30),
+                min = 10,
+                max = 60,
+                suffix = " fps",
+                onValue = {
+                    prefs.edit().putInt("rainFps", it).apply()
+                    onChanged()
+                }
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+        Text("Glyph set:")
+        for (key in RAIN_GLYPH_KEYS) {
+            Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(glyphLabel(key), modifier = Modifier.weight(1f))
+                Switch(
+                        checked = prefs.getBoolean(key, true),
+                        onCheckedChange = {
+                            prefs.edit().putBoolean(key, it).apply()
+                            onChanged()
+                        }
+                )
+            }
+        }
+    }
+
+    if (showReset) {
+        AlertDialog(
+                onDismissRequest = { showReset = false },
+                title = { Text("Reset rain to defaults?") },
+                text = {
+                    Text(
+                            "Restores speed, color, glyph sets, column length and frame rate " +
+                                    "(applies to both screens)."
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                            onClick = {
+                                val prev = snapshotRain(prefs)
+                                resetRain(prefs)
+                                showReset = false
+                                onChanged()
+                                scope.launch {
+                                    if (snacks.showSnackbar(
+                                            "Rain reset to defaults",
+                                            "Undo"
+                                    ) == SnackbarResult.ActionPerformed) {
+                                        restoreRain(prefs, prev)
+                                        onChanged()
+                                    }
+                                }
+                            }
+                    ) { Text("Reset") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showReset = false }) { Text("Cancel") }
+                }
+        )
+    }
+}
+
+/** Display label for a glyph-set pref key (mirrors the legacy rain rows). */
+private fun glyphLabel(key: String): String {
+    return when (key) {
+        "glyphKatakana" -> "Katakana"
+        "glyphDigits" -> "Digits"
+        "glyphLatin" -> "Latin"
+        "glyphSymbols" -> "Symbols"
+        else -> key
+    }
+}
+
+/** Integer slider row backed by an int pref (per-screen HUD keys and global rain keys). */
 @Composable
 private fun HudSlider(
         label: String,
@@ -573,6 +893,39 @@ private fun HudSlider(
                 modifier = Modifier.fillMaxWidth()
         )
     }
+}
+
+/** Snapshot of one screen's HUD prefs + layout label, for Reset Undo. */
+private data class HudSnapshot(
+        val bools: Map<String, Boolean>,
+        val ints: Map<String, Int>,
+        val title: String,
+        val layoutName: String?
+)
+
+private fun snapshotHud(
+        prefs: SharedPreferences,
+        editingLock: Boolean,
+        currentLayout: String?
+): HudSnapshot {
+    fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
+    val bools = LinkedHashMap<String, Boolean>()
+    for (k in LAYOUT_BOOLS) bools[k] = prefs.getBoolean(keyOf(k), true)
+    val ints = LinkedHashMap<String, Int>()
+    for (i in LAYOUT_INTS.indices) {
+        ints[LAYOUT_INTS[i]] = prefs.getInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
+    }
+    val title = prefs.getString(keyOf("title"), LAYOUT_TITLE_DEFAULT) ?: LAYOUT_TITLE_DEFAULT
+    return HudSnapshot(bools, ints, title, currentLayout)
+}
+
+private fun restoreHud(prefs: SharedPreferences, editingLock: Boolean, snap: HudSnapshot) {
+    fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
+    val e = prefs.edit()
+    for ((k, v) in snap.bools) e.putBoolean(keyOf(k), v)
+    for ((k, v) in snap.ints) e.putInt(keyOf(k), v)
+    e.putString(keyOf("title"), snap.title)
+    e.apply()
 }
 
 /** Display label for an HUD element key (mirrors the legacy element rows). */

@@ -18,6 +18,7 @@ import android.view.MotionEvent
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import kotlin.math.roundToInt
 
 private const val BAR_HEIGHT_DP = 18
@@ -45,6 +46,7 @@ class SettingsActivity : ComponentActivity() {
 
     override fun onCreate(s: Bundle?) {
         super.onCreate(s)
+        enableEdgeToEdge()
         p = getSharedPreferences("matrix", MODE_PRIVATE)
         setContent {
             GhostRainTheme {
