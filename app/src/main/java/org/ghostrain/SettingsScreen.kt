@@ -90,6 +90,10 @@ fun SettingsScreen() {
     var hudOpen by remember {
         mutableStateOf(prefs.getBoolean("ui_open_hud", true))
     }
+    // Which named layout the SCREEN row shows as loaded. Hoisted here (not in
+    // LayoutsRow) so the HUD Reset — a sibling section — can clear the label,
+    // exactly like legacy resetHud cleared currentLayout.
+    var currentLayout by remember { mutableStateOf<String?>(null) }
     // Bumped on any pref write (controls in Tasks 5-6, layout ops below) and
     // on lifecycle resume (returning from the system wallpaper picker may have
     // changed wallpaper-active state), so preview + status card recompute.
@@ -155,7 +159,9 @@ fun SettingsScreen() {
                                 prefs.edit().putBoolean("ui_open_screen", screenOpen).apply()
                             },
                             onEditingLockChange = { editingLock = it },
-                            onChanged = { prefsTick++ }
+                            onChanged = { prefsTick++ },
+                            currentLayout = currentLayout,
+                            onLayoutChange = { currentLayout = it }
                     )
                 }
                 item {
@@ -167,7 +173,8 @@ fun SettingsScreen() {
                                 hudOpen = !hudOpen
                                 prefs.edit().putBoolean("ui_open_hud", hudOpen).apply()
                             },
-                            onChanged = { prefsTick++ }
+                            onChanged = { prefsTick++ },
+                            onLayoutCleared = { currentLayout = null }
                     )
                 }
                 // TODO(Task 6: RAIN section, global keys, keyed off nothing)
@@ -281,7 +288,9 @@ private fun ScreenSection(
         animating: Boolean,
         onToggle: () -> Unit,
         onEditingLockChange: (Boolean) -> Unit,
-        onChanged: () -> Unit
+        onChanged: () -> Unit,
+        currentLayout: String?,
+        onLayoutChange: (String?) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
         Row(
@@ -318,7 +327,13 @@ private fun ScreenSection(
                 animating = animating
         )
         Spacer(modifier = Modifier.height(8.dp))
-        LayoutsRow(prefs = prefs, editingLock = editingLock, onChanged = onChanged)
+        LayoutsRow(
+                prefs = prefs,
+                editingLock = editingLock,
+                onChanged = onChanged,
+                currentLayout = currentLayout,
+                onLayoutChange = onLayoutChange
+        )
         Text(
                 "New = fresh config for this screen; Save as\u2026 = store it as a named layout.",
                 style = MaterialTheme.typography.bodySmall
@@ -343,7 +358,8 @@ private fun HudSection(
         editingLock: Boolean,
         open: Boolean,
         onToggle: () -> Unit,
-        onChanged: () -> Unit
+        onChanged: () -> Unit,
+        onLayoutCleared: () -> Unit
 ) {
     fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
     var showReset by remember { mutableStateOf(false) }
@@ -525,6 +541,7 @@ private fun HudSection(
                                 e.putString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
                                 e.apply()
                                 showReset = false
+                                onLayoutCleared()
                                 onChanged()
                             }
                     ) { Text("Reset") }
@@ -605,11 +622,12 @@ private fun moveOrder(
 private fun LayoutsRow(
         prefs: SharedPreferences,
         editingLock: Boolean,
-        onChanged: () -> Unit
+        onChanged: () -> Unit,
+        currentLayout: String?,
+        onLayoutChange: (String?) -> Unit
 ) {
     val context = LocalContext.current
     fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
-    var currentLayout by remember { mutableStateOf<String?>(null) }
     var showPicker by remember { mutableStateOf(false) }
     var showSave by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
@@ -645,7 +663,7 @@ private fun LayoutsRow(
             )
             val out = loadLayouts().filter { it.name != name } + snapshot
             prefs.edit().putString("layouts", LayoutsRepo.serialize(out)).apply()
-            currentLayout = name
+            onLayoutChange(name)
             onChanged()
             toast(context, "Saved \"$name\"")
         } catch (_: Exception) {
@@ -657,7 +675,7 @@ private fun LayoutsRow(
         try {
             val out = loadLayouts().filter { it.name != name }
             prefs.edit().putString("layouts", LayoutsRepo.serialize(out)).apply()
-            if (name == currentLayout) currentLayout = null
+            if (name == currentLayout) onLayoutChange(null)
             onChanged()
         } catch (_: Exception) { }
     }
@@ -668,7 +686,7 @@ private fun LayoutsRow(
         for (i in LAYOUT_INTS.indices) e.putInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
         e.putString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
         e.apply()
-        currentLayout = null
+        onLayoutChange(null)
         onChanged()
         toast(context, "New config for " + if (editingLock) "LOCK" else "HOME")
     }
@@ -704,7 +722,7 @@ private fun LayoutsRow(
                                         modifier = Modifier.fillMaxWidth()
                                                 .clickable {
                                                     applySnapshot(s)
-                                                    currentLayout = s.name
+                                                    onLayoutChange(s.name)
                                                     showPicker = false
                                                     toast(context, "Loaded \"" + s.name + "\"")
                                                 }
