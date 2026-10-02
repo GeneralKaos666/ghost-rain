@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Package `org.ghostrain`, minSdk 26, compileSdk/targetSdk 35, JDK 17.
+- Package `org.ghostrain`, minSdk 26, compileSdk 37, targetSdk 35, JDK 17.
 - `matrix` prefs keys byte-identical in Phase 1–2; no migration until Phase 3.
 - Termux `android.aapt2FromMavenOverride` absolute path kept.
 - Release signing: real key from `local.properties`/env, else generate once `keystore/dev-release.jks`.

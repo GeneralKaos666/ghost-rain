@@ -16,7 +16,8 @@ Termux (JDK 17).
 
 ## 2. Constraints (carry over)
 
-- Package `org.ghostrain`, minSdk 26, target/compileSdk 35 (bumped from 34).
+- Package `org.ghostrain`, minSdk 26, compileSdk 37, targetSdk 35 (compileSdk raised
+  from 34: Compose BOM 2026.08.00 AARs require ≥37; targetSdk stays 35).
 - `SharedPreferences` file `"matrix"`, keys byte-identical (no migration).
 - Rain keys global; HUD keys per-screen with `Lock` suffix; `order` global;
   `layouts` JSON snapshot; `ui_open_*`, `lastAppliedVersion`,
