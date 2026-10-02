@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.compose)
 }
 
 import java.io.FileInputStream
@@ -7,7 +8,9 @@ import java.util.Properties
 
 android {
     namespace = "org.ghostrain"
-    compileSdk = 35
+    // 37: Compose BOM 2026.08.00 (Compose 1.12.0 AARs) requires compiling
+    // against API 37+. targetSdk stays 35 (no new runtime behavior opted into).
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "org.ghostrain"
@@ -29,6 +32,9 @@ android {
     }
 
     // Compose dependencies land in Tasks 3-6; AndroidX flag is already on.
+    buildFeatures {
+        compose = true
+    }
     dependenciesInfo {
         includeInApk = false
         includeInBundle = false
@@ -38,6 +44,13 @@ android {
 dependencies {
     // JVM unit tests (Task 2: pure-JVM prefs logic, no Android framework).
     testImplementation(libs.junit)
+    // Compose settings host (Task 3+; versions managed by the BOM).
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.foundation)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.runtime)
+    implementation(libs.compose.ui)
+    implementation(libs.androidx.activity.compose)
 }
 
 // Built-in Kotlin (AGP 9+) defaults jvmTarget from compileOptions.targetCompatibility;
