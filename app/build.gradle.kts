@@ -51,6 +51,9 @@ dependencies {
     implementation(libs.compose.runtime)
     implementation(libs.compose.ui)
     implementation(libs.androidx.activity.compose)
+    // Phase 3 (Task 9): SharedPreferences "matrix" -> DataStore Preferences
+    // one-time migration; engine + Settings read via MatrixDataStore.
+    implementation(libs.androidx.datastore.preferences)
 }
 
 // Built-in Kotlin (AGP 9+) defaults jvmTarget from compileOptions.targetCompatibility;

@@ -7,6 +7,7 @@ composeBom = "2026.08.00"
 activityCompose = "1.13.0"
 activityKtx = "1.13.0"
 coreKtx = "1.19.1"
+datastorePreferences = "1.0.0"
 junit = "4.13.2"
 
 [libraries]
@@ -24,6 +25,8 @@ compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 # JVM unit tests (Task 2)
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+# DataStore Preferences with SharedPreferences migration (Task 9, Phase 3)
+androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastorePreferences" }
 # Pinned KGP for AGP 9 built-in Kotlin (runtime upgrade mechanism)
 kotlin-gradle-plugin = { group = "org.jetbrains.kotlin", name = "kotlin-gradle-plugin", version.ref = "kotlin" }
 

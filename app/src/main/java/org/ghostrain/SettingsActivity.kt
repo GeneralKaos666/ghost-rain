@@ -16,6 +16,9 @@ class SettingsActivity : ComponentActivity() {
 
     override fun onCreate(s: Bundle?) {
         super.onCreate(s)
+        // Kick the one-time SharedPreferences -> DataStore migration (also
+        // triggered by the engine; whichever runs first wins, exactly once).
+        MatrixDataStore.ensureMigrated(this)
         enableEdgeToEdge()
         setContent {
             GhostRainTheme {

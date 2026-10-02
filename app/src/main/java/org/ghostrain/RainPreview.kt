@@ -7,6 +7,7 @@ import android.graphics.Typeface
 import android.os.SystemClock
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -14,8 +15,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import kotlin.math.roundToInt
 
@@ -59,6 +62,13 @@ fun RainPreview(
     val scale = prefs.getInt(keyOf("hudScale"), 100) / 100f
     val lines = previewLines(prefs, editingLock)
     val rain = RainSettings.fromPrefs(prefs)
+    // Per-screen opt-in Material You HUD: OFF keeps the legacy green paint
+    // values (identical to the wallpaper engine defaults); ON follows the
+    // Compose palette (the engine resolves the equivalent system accents).
+    val dynamic = prefs.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
+    val scheme = MaterialTheme.colorScheme
+    val previewText = if (dynamic) scheme.primary else Color(0xFF00FF66)
+    val previewFill = if (dynamic) scheme.surfaceVariant.copy(alpha = 0.78f) else Color(0x3300FF66)
 
     val context = LocalContext.current
     val metrics = context.resources.displayMetrics
@@ -112,6 +122,9 @@ fun RainPreview(
     // state during draw is disallowed, plain remembered holders are fine).
     val lastFontSizeMul = remember { floatArrayOf(-1f) }
     val lastDraw = remember { longArrayOf(0L) }
+    lineP.color = previewText.toArgb()
+    box.color = previewText.toArgb()
+    boxFill.color = previewFill.toArgb()
     if (rain.fontSizeMul != lastFontSizeMul[0]) {
         lastFontSizeMul[0] = rain.fontSizeMul
         renderer.resize(sw, sh, rain)

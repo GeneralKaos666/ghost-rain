@@ -76,7 +76,50 @@ object HudLines {
     /**
      * The NET line: `[locked]` on the real lock screen when redaction is on,
      * otherwise the IP (or `--` when none was detected).
+     *
+     * Detail overload (Phase 3): appends the transport label (`Wi-Fi` /
+     * `cell` / `eth`), plus the Wi-Fi SSID and `level/4` signal when the
+     * SSID is actually known. A null/blank transport returns output
+     * byte-identical to the plain overload; an unknown SSID (modern Android
+     * returns `<unknown ssid>` without location permission — which this
+     * app deliberately does not request) falls back to the transport label
+     * only. Redaction still wins over all detail.
      */
     fun netLine(ip: String?, locked: Boolean, redact: Boolean): String =
-            if (locked && redact) "NET  [locked]" else "NET  ${ip ?: "--"}"
+            netLine(ip, locked, redact, transport = null, ssid = null, signalLevel = -1)
+
+    fun netLine(
+            ip: String?,
+            locked: Boolean,
+            redact: Boolean,
+            transport: String?,
+            ssid: String?,
+            signalLevel: Int
+    ): String {
+        if (locked && redact) return "NET  [locked]"
+        val base = "NET  ${ip ?: "--"}"
+        val t = transport?.takeIf { it.isNotBlank() } ?: return base
+        val sb = StringBuilder(base).append(' ').append(t)
+        val clean = cleanSsid(ssid) ?: return sb.toString()
+        sb.append(' ').append(clean)
+        if (signalLevel in 0..4) sb.append(' ').append(signalLevel).append("/4")
+        return sb.toString()
+    }
+
+    /**
+     * Normalize a `WifiInfo.ssid` for the HUD: null, blank, `<unknown
+     * ssid>`, and empty-after-unquoting all mean "SSID unavailable" (null).
+     * Older APIs quote the SSID (`"Home"`); the quotes are stripped since
+     * the HUD delimits fields with spaces, not quotes.
+     */
+    fun cleanSsid(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        var s = raw.trim()
+        if (s.equals("<unknown ssid>", ignoreCase = true)) return null
+        if (s.length >= 2 && s.startsWith("\"") && s.endsWith("\"")) {
+            s = s.substring(1, s.length - 1).trim()
+        }
+        if (s.isEmpty() || s.equals("<unknown ssid>", ignoreCase = true)) return null
+        return s
+    }
 }

@@ -17,6 +17,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.BatteryManager
+import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
@@ -66,6 +67,10 @@ class MatrixWallpaperService : WallpaperService() {
         private var hudPosLock = 0.5f
         private var hudXLock = 0.5f
         private var hudScaleLock = 1.0f        // lock
+        private var hudDynamic = MatrixDataStore.HUD_DYNAMIC_DEFAULT      // home
+        private var hudDynamicLock = MatrixDataStore.HUD_DYNAMIC_DEFAULT  // lock
+        private var dynText = MatrixDataStore.LEGACY_TEXT_COLOR
+        private var dynPanel = MatrixDataStore.LEGACY_PANEL_COLOR
         private lateinit var rainRenderer: RainRenderer
         private lateinit var rainSettings: RainSettings
 
@@ -102,8 +107,9 @@ class MatrixWallpaperService : WallpaperService() {
                 color = 0xC8000A00.toInt()
             }
 
-            prefs = getSharedPreferences("matrix", Context.MODE_PRIVATE)
+            prefs = MatrixDataStore.prefs(this@MatrixWallpaperService)
             prefs.registerOnSharedPreferenceChangeListener(this)
+            MatrixDataStore.ensureMigrated(this@MatrixWallpaperService)
             readPrefs()
             km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
 
@@ -128,6 +134,10 @@ class MatrixWallpaperService : WallpaperService() {
             hudPosLock = prefs.getInt("hudPosLock", 50) / 100f
             hudXLock = prefs.getInt("hudXLock", 50) / 100f
             hudScaleLock = prefs.getInt("hudScaleLock", 100) / 100f
+            hudDynamic = prefs.getBoolean(
+                    HudPrefs.keyOf("hudDynamic", false), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
+            hudDynamicLock = prefs.getBoolean(
+                    HudPrefs.keyOf("hudDynamic", true), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
             rainSettings = RainSettings.fromPrefs(prefs)
         }
 
@@ -197,8 +207,17 @@ class MatrixWallpaperService : WallpaperService() {
             val now = SystemClock.elapsedRealtime()
             if (now - lastStats > 1000 || hud.isEmpty()) {
                 hud = gatherStats(locked)
+                if (if (locked) hudDynamicLock else hudDynamic) refreshDynamicColors()
                 lastStats = now
             }
+            // Per-screen opt-in Material You HUD (Phase 3): toggle OFF keeps
+            // the legacy paint values byte-identical; toggle ON derives
+            // text/panel from the system palette (refreshed above, ~1/sec).
+            val dynOn = if (locked) hudDynamicLock else hudDynamic
+            val colors = if (dynOn) MatrixDataStore.hudColors(true, dynText, dynPanel)
+                    else MatrixDataStore.hudColors(false, 0, 0)
+            hudText.color = colors.text
+            panel.color = colors.panel
             val n = hud.size
             if (n == 0) return
             val uScale = if (locked) hudScaleLock else hudScale
@@ -294,11 +313,17 @@ class MatrixWallpaperService : WallpaperService() {
                     } catch (_: Exception) { null }
                 }
                 "cpu" -> cpu()
-                "net" -> HudLines.netLine(
-                    ip(),
-                    locked = locked,
-                    redact = prefs.getBoolean(HudPrefs.keyOf("redactIp", locked), true)
-                )
+                "net" -> {
+                    val detail = netDetail()
+                    HudLines.netLine(
+                        ip(),
+                        locked = locked,
+                        redact = prefs.getBoolean(HudPrefs.keyOf("redactIp", locked), true),
+                        transport = detail.transport,
+                        ssid = detail.ssid,
+                        signalLevel = detail.signalLevel
+                    )
+                }
                 "up" -> "UP   ${uptime()}"
                 else -> null
             }
@@ -306,6 +331,54 @@ class MatrixWallpaperService : WallpaperService() {
 
         private fun elOn(name: String, locked: Boolean): Boolean {
             return prefs.getBoolean(HudPrefs.keyOf("el_$name", locked), true)
+        }
+
+        /** Material You palette for the opt-in dynamic HUD, or keeps the last good values. */
+        private fun refreshDynamicColors() {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+            try {
+                dynText = getColor(android.R.color.system_accent1_200)
+                val base = getColor(android.R.color.system_neutral1_900)
+                dynPanel = (base and 0x00FFFFFF) or 0xC8000000.toInt()
+            } catch (_: Exception) {
+                // Unresolvable palette (unlikely): keep legacy/last colors.
+            }
+        }
+
+        /**
+         * Transport label plus Wi-Fi SSID/signal using only the existing
+         * `ACCESS_NETWORK_STATE` / `ACCESS_WIFI_STATE` permissions. No
+         * location permission is requested, so on modern Android the SSID
+         * commonly reads `<unknown ssid>` — handled gracefully by falling
+         * back to the transport label only (see [HudLines.cleanSsid]).
+         */
+        private fun netDetail(): NetDetail {
+            val none = NetDetail(null, null, -1)
+            try {
+                val cm = applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE)
+                        as? ConnectivityManager ?: return none
+                val active = cm.activeNetwork ?: return none
+                val nc = cm.getNetworkCapabilities(active) ?: return none
+                val transport = when {
+                    nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+                    nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cell"
+                    nc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "eth"
+                    else -> return none
+                }
+                if (transport != "Wi-Fi") return NetDetail(transport, null, -1)
+                @Suppress("DEPRECATION")
+                val info = try {
+                    (applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager)
+                            ?.connectionInfo
+                } catch (_: Exception) { null }
+                val ssid = HudLines.cleanSsid(info?.ssid) ?: return NetDetail(transport, null, -1)
+                val level = try {
+                    WifiManager.calculateSignalLevel(info!!.rssi, 5).coerceIn(0, 4)
+                } catch (_: Exception) { -1 }
+                return NetDetail(transport, ssid, level)
+            } catch (_: Exception) {
+                return none
+            }
         }
 
         private fun bar(pct: Int): String {
@@ -483,3 +556,10 @@ class MatrixWallpaperService : WallpaperService() {
         }
     }
 }
+
+/** NET-line detail for [HudLines.netLine]; all-null when nothing is known. */
+private data class NetDetail(
+        val transport: String?,
+        val ssid: String?,
+        val signalLevel: Int
+)

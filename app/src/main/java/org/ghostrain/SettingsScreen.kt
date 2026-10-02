@@ -88,7 +88,7 @@ import kotlin.math.roundToInt
 fun SettingsScreen() {
     val context = LocalContext.current
     val prefs = remember {
-        context.getSharedPreferences("matrix", Context.MODE_PRIVATE)
+        MatrixDataStore.prefs(context)
     }
     var editingLock by rememberSaveable { mutableStateOf(false) }
     var screenOpen by remember {
@@ -549,6 +549,26 @@ private fun HudSection(
                     }
             )
         }
+
+        Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Match system color")
+                Text(
+                        "Off = classic green HUD",
+                        style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Switch(
+                    checked = prefs.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT),
+                    onCheckedChange = {
+                        prefs.edit().putBoolean(keyOf("hudDynamic"), it).apply()
+                        onChanged()
+                    }
+            )
+        }
     }
 
     if (showRedactConfirm) {
@@ -598,6 +618,7 @@ private fun HudSection(
                                     e.putInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
                                 }
                                 e.putString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
+                                e.putBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
                                 e.apply()
                                 showReset = false
                                 onLayoutChange(null)
@@ -889,6 +910,7 @@ private data class HudSnapshot(
         val bools: Map<String, Boolean>,
         val ints: Map<String, Int>,
         val title: String,
+        val dynamic: Boolean,
         val layoutName: String?
 )
 
@@ -905,7 +927,8 @@ private fun snapshotHud(
         ints[LAYOUT_INTS[i]] = prefs.getInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
     }
     val title = prefs.getString(keyOf("title"), LAYOUT_TITLE_DEFAULT) ?: LAYOUT_TITLE_DEFAULT
-    return HudSnapshot(bools, ints, title, currentLayout)
+    val dynamic = prefs.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
+    return HudSnapshot(bools, ints, title, dynamic, currentLayout)
 }
 
 private fun restoreHud(prefs: SharedPreferences, editingLock: Boolean, snap: HudSnapshot) {
@@ -914,6 +937,7 @@ private fun restoreHud(prefs: SharedPreferences, editingLock: Boolean, snap: Hud
     for ((k, v) in snap.bools) e.putBoolean(keyOf(k), v)
     for ((k, v) in snap.ints) e.putInt(keyOf(k), v)
     e.putString(keyOf("title"), snap.title)
+    e.putBoolean(keyOf("hudDynamic"), snap.dynamic)
     e.apply()
 }
 
@@ -984,6 +1008,7 @@ private fun LayoutsRow(
             e.putInt(keyOf(LAYOUT_INTS[i]), s.ints[LAYOUT_INTS[i]] ?: LAYOUT_INT_DEFS[i])
         }
         e.putString(keyOf("title"), s.title.ifEmpty { LAYOUT_TITLE_DEFAULT })
+        e.putBoolean(keyOf("hudDynamic"), s.bools["hudDynamic"] ?: MatrixDataStore.HUD_DYNAMIC_DEFAULT)
         e.apply()
         onChanged()
     }
@@ -992,6 +1017,7 @@ private fun LayoutsRow(
         try {
             val bools = LinkedHashMap<String, Boolean>()
             for (k in LAYOUT_BOOLS) bools[k] = prefs.getBoolean(keyOf(k), true)
+            bools["hudDynamic"] = prefs.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
             val ints = LinkedHashMap<String, Int>()
             for (i in LAYOUT_INTS.indices) {
                 ints[LAYOUT_INTS[i]] = prefs.getInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
@@ -1027,6 +1053,7 @@ private fun LayoutsRow(
         for (k in LAYOUT_BOOLS) e.putBoolean(keyOf(k), true)
         for (i in LAYOUT_INTS.indices) e.putInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
         e.putString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
+        e.putBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
         e.apply()
         onLayoutChange(null)
         onChanged()

@@ -43,7 +43,10 @@ internal fun previewLines(prefs: SharedPreferences, editingLock: Boolean): Array
                 "net" -> HudLines.netLine(
                     "192.168.7.127",
                     locked = editingLock,
-                    redact = prefs.getBoolean(keyOf("redactIp"), true)
+                    redact = prefs.getBoolean(keyOf("redactIp"), true),
+                    transport = "Wi-Fi",
+                    ssid = "HomeNet",
+                    signalLevel = 4
                 )
                 "up" -> "UP   3d 04:12"
                 else -> null
