@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 package org.ghostrain
 
-import android.content.SharedPreferences
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.os.SystemClock
@@ -51,21 +50,20 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun RainPreview(
-        prefs: SharedPreferences,
         editingLock: Boolean,
         animating: Boolean,
         modifier: Modifier = Modifier
 ) {
     fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
-    val px = prefs.getInt(keyOf("hudX"), 50) / 100f
-    val py = prefs.getInt(keyOf("hudPos"), 50) / 100f
-    val scale = prefs.getInt(keyOf("hudScale"), 100) / 100f
-    val lines = previewLines(prefs, editingLock)
-    val rain = RainSettings.fromPrefs(prefs)
+    val px = MatrixDataStore.getInt(keyOf("hudX"), 50) / 100f
+    val py = MatrixDataStore.getInt(keyOf("hudPos"), 50) / 100f
+    val scale = MatrixDataStore.getInt(keyOf("hudScale"), 100) / 100f
+    val lines = previewLines(editingLock)
+    val rain = RainSettings.fromSnapshot(MatrixDataStore.snapshot())
     // Per-screen opt-in Material You HUD: OFF keeps the legacy green paint
     // values (identical to the wallpaper engine defaults); ON follows the
     // Compose palette (the engine resolves the equivalent system accents).
-    val dynamic = prefs.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
+    val dynamic = MatrixDataStore.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
     val scheme = MaterialTheme.colorScheme
     val previewText = if (dynamic) scheme.primary else Color(0xFF00FF66)
     val previewFill = if (dynamic) scheme.surfaceVariant.copy(alpha = 0.78f) else Color(0x3300FF66)

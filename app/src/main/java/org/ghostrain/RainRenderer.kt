@@ -29,23 +29,32 @@ data class RainSettings(
         val frameDelayMs: Int) {
 
     companion object {
-        fun fromPrefs(p: SharedPreferences): RainSettings {
-            val rawMin = p.getInt("rainMinLen", 6).coerceIn(1, 50)
-            val rawMax = p.getInt("rainMaxLen", 32).coerceIn(1, 50)
-            val fps = p.getInt("rainFps", 30).coerceIn(10, 60)
+        /**
+         * Full-fidelity reader over a [MatrixDataStore.snapshot]: same keys,
+         * defaults, and clamping as the legacy `SharedPreferences` reader.
+         * [fromPrefs] delegates here, so there is exactly one rule.
+         */
+        fun fromSnapshot(s: Map<String, Any?>): RainSettings {
+            fun i(k: String, d: Int) = (s[k] as? Int) ?: d
+            fun b(k: String) = (s[k] as? Boolean) ?: true
+            val rawMin = i("rainMinLen", 6).coerceIn(1, 50)
+            val rawMax = i("rainMaxLen", 32).coerceIn(1, 50)
+            val fps = i("rainFps", 30).coerceIn(10, 60)
             return RainSettings(
-                    speedMul = p.getInt("rainSpeed", 100) / 100f,
-                    hue = p.getInt("rainHue", 120).coerceIn(0, 360),
-                    fontSizeMul = p.getInt("rainFontSize", 100) / 100f,
-                    glyphKatakana = p.getBoolean("glyphKatakana", true),
-                    glyphDigits = p.getBoolean("glyphDigits", true),
-                    glyphLatin = p.getBoolean("glyphLatin", true),
-                    glyphSymbols = p.getBoolean("glyphSymbols", true),
+                    speedMul = i("rainSpeed", 100) / 100f,
+                    hue = i("rainHue", 120).coerceIn(0, 360),
+                    fontSizeMul = i("rainFontSize", 100) / 100f,
+                    glyphKatakana = b("glyphKatakana"),
+                    glyphDigits = b("glyphDigits"),
+                    glyphLatin = b("glyphLatin"),
+                    glyphSymbols = b("glyphSymbols"),
                     minLen = minOf(rawMin, rawMax),
                     maxLen = maxOf(rawMin, rawMax),
-                    shimmer = p.getInt("shimmer", 60) / 100f,
+                    shimmer = i("shimmer", 60) / 100f,
                     frameDelayMs = (1000f / fps).roundToInt().coerceIn(16, 100))
         }
+
+        fun fromPrefs(p: SharedPreferences): RainSettings = fromSnapshot(p.all)
 
         /**
          * Pure-JVM twin of [fromPrefs] for the unit-test source set and the

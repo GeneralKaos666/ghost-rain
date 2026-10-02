@@ -6,7 +6,6 @@ import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.SharedPreferences
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
@@ -43,7 +42,7 @@ class MatrixWallpaperService : WallpaperService() {
 
     override fun onCreateEngine(): Engine = MatrixEngine()
 
-    inner class MatrixEngine : Engine(), SharedPreferences.OnSharedPreferenceChangeListener {
+    inner class MatrixEngine : Engine() {
 
         private val handler = Handler(Looper.getMainLooper())
         private var visible = false
@@ -55,7 +54,6 @@ class MatrixWallpaperService : WallpaperService() {
         private lateinit var panel: Paint
         private lateinit var vt: Typeface
 
-        private lateinit var prefs: SharedPreferences
         private lateinit var km: KeyguardManager
         private var netCm: ConnectivityManager? = null
         private var netCb: ConnectivityManager.NetworkCallback? = null
@@ -107,9 +105,10 @@ class MatrixWallpaperService : WallpaperService() {
                 color = 0xC8000A00.toInt()
             }
 
-            prefs = MatrixDataStore.prefs(this@MatrixWallpaperService)
-            prefs.registerOnSharedPreferenceChangeListener(this)
-            MatrixDataStore.ensureMigrated(this@MatrixWallpaperService)
+            // DataStore is the source of truth: one blocking load runs the
+            // one-time legacy migration, then every read hits the snapshot.
+            MatrixDataStore.startup(this@MatrixWallpaperService)
+            MatrixDataStore.addOnChangeListener(repoListener)
             readPrefs()
             km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
 
@@ -125,25 +124,29 @@ class MatrixWallpaperService : WallpaperService() {
             }
         }
 
-        private fun readPrefs() {
-            showHud = prefs.getBoolean("hud", true)
-            showHudLock = prefs.getBoolean("hudLock", true)
-            hudPos = prefs.getInt("hudPos", 50) / 100f
-            hudX = prefs.getInt("hudX", 50) / 100f
-            hudScale = prefs.getInt("hudScale", 100) / 100f
-            hudPosLock = prefs.getInt("hudPosLock", 50) / 100f
-            hudXLock = prefs.getInt("hudXLock", 50) / 100f
-            hudScaleLock = prefs.getInt("hudScaleLock", 100) / 100f
-            hudDynamic = prefs.getBoolean(
-                    HudPrefs.keyOf("hudDynamic", false), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
-            hudDynamicLock = prefs.getBoolean(
-                    HudPrefs.keyOf("hudDynamic", true), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
-            rainSettings = RainSettings.fromPrefs(prefs)
-        }
-
-        override fun onSharedPreferenceChanged(sp: SharedPreferences?, key: String?) {
+        // Snapshot reader: replaces the old OnSharedPreferenceChangeListener
+        // (Settings writes land in the snapshot synchronously, so the engine
+        // sees them on the next frame at the latest — this listener rebuilds
+        // immediately, exactly like before).
+        private val repoListener: (String?) -> Unit = { key ->
             readPrefs()
             if ("rainFontSize" == key && w > 0 && h > 0) rainRenderer.resize(w, h, rainSettings)
+        }
+
+        private fun readPrefs() {
+            showHud = MatrixDataStore.getBoolean("hud", true)
+            showHudLock = MatrixDataStore.getBoolean("hudLock", true)
+            hudPos = MatrixDataStore.getInt("hudPos", 50) / 100f
+            hudX = MatrixDataStore.getInt("hudX", 50) / 100f
+            hudScale = MatrixDataStore.getInt("hudScale", 100) / 100f
+            hudPosLock = MatrixDataStore.getInt("hudPosLock", 50) / 100f
+            hudXLock = MatrixDataStore.getInt("hudXLock", 50) / 100f
+            hudScaleLock = MatrixDataStore.getInt("hudScaleLock", 100) / 100f
+            hudDynamic = MatrixDataStore.getBoolean(
+                    HudPrefs.keyOf("hudDynamic", false), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
+            hudDynamicLock = MatrixDataStore.getBoolean(
+                    HudPrefs.keyOf("hudDynamic", true), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
+            rainSettings = RainSettings.fromSnapshot(MatrixDataStore.snapshot())
         }
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -171,7 +174,7 @@ class MatrixWallpaperService : WallpaperService() {
 
         override fun onDestroy() {
             handler.removeCallbacks(frame)
-            if (::prefs.isInitialized) prefs.unregisterOnSharedPreferenceChangeListener(this)
+            MatrixDataStore.removeOnChangeListener(repoListener)
             netCm?.let { cm ->
                 netCb?.let { cb ->
                     try { cm.unregisterNetworkCallback(cb) } catch (_: Exception) { }
@@ -252,7 +255,7 @@ class MatrixWallpaperService : WallpaperService() {
 
         private fun orderKeys(): Array<String> {
             // Single-sourced in HudPrefs (Task 2); toTypedArray keeps call sites unchanged.
-            return HudPrefs.orderKeys(prefs.getString("order", HudPrefs.DEFAULT_ORDER)).toTypedArray()
+            return HudPrefs.orderKeys(MatrixDataStore.getString("order", HudPrefs.DEFAULT_ORDER)).toTypedArray()
         }
 
         private fun gatherStats(locked: Boolean): Array<String> {
@@ -268,7 +271,7 @@ class MatrixWallpaperService : WallpaperService() {
         private fun lineFor(key: String, locked: Boolean): String? {
             return when (key) {
                 "title" -> HudLines.titleOrNull(
-                    prefs.getString(HudPrefs.keyOf("title", locked), "KEEP//HUD")
+                    MatrixDataStore.getString(HudPrefs.keyOf("title", locked), "KEEP//HUD")
                 )
                 "ram" -> {
                     try {
@@ -318,7 +321,7 @@ class MatrixWallpaperService : WallpaperService() {
                     HudLines.netLine(
                         ip(),
                         locked = locked,
-                        redact = prefs.getBoolean(HudPrefs.keyOf("redactIp", locked), true),
+                        redact = MatrixDataStore.getBoolean(HudPrefs.keyOf("redactIp", locked), true),
                         transport = detail.transport,
                         ssid = detail.ssid,
                         signalLevel = detail.signalLevel
@@ -330,7 +333,7 @@ class MatrixWallpaperService : WallpaperService() {
         }
 
         private fun elOn(name: String, locked: Boolean): Boolean {
-            return prefs.getBoolean(HudPrefs.keyOf("el_$name", locked), true)
+            return MatrixDataStore.getBoolean(HudPrefs.keyOf("el_$name", locked), true)
         }
 
         /** Material You palette for the opt-in dynamic HUD, or keeps the last good values. */

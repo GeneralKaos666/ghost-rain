@@ -5,7 +5,6 @@ import android.app.WallpaperManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
@@ -86,19 +85,15 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen() {
-    val context = LocalContext.current
-    val prefs = remember {
-        MatrixDataStore.prefs(context)
-    }
     var editingLock by rememberSaveable { mutableStateOf(false) }
     var screenOpen by remember {
-        mutableStateOf(prefs.getBoolean("ui_open_screen", true))
+        mutableStateOf(MatrixDataStore.getBoolean("ui_open_screen", true))
     }
     var hudOpen by remember {
-        mutableStateOf(prefs.getBoolean("ui_open_hud", true))
+        mutableStateOf(MatrixDataStore.getBoolean("ui_open_hud", true))
     }
     var rainOpen by remember {
-        mutableStateOf(prefs.getBoolean("ui_open_rain", false))
+        mutableStateOf(MatrixDataStore.getBoolean("ui_open_rain", false))
     }
     // Which named layout the SCREEN row shows as loaded. Hoisted here (not in
     // LayoutsRow) so the HUD Reset — a sibling section — can clear the label,
@@ -110,10 +105,11 @@ fun SettingsScreen() {
     var prefsTick by remember { mutableIntStateOf(0) }
     var resumed by remember { mutableStateOf(true) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle, prefs) {
-        val prefsListener =
-                SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> prefsTick++ }
-        prefs.registerOnSharedPreferenceChangeListener(prefsListener)
+    DisposableEffect(lifecycle) {
+        // Repo change listener: any write recomposes (same role the
+        // SharedPreferences listener had — DataStore is now the store).
+        val repoListener: (String?) -> Unit = { prefsTick++ }
+        MatrixDataStore.addOnChangeListener(repoListener)
         val lifecycleObserver = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
@@ -126,7 +122,7 @@ fun SettingsScreen() {
         }
         lifecycle.addObserver(lifecycleObserver)
         onDispose {
-            prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
+            MatrixDataStore.removeOnChangeListener(repoListener)
             lifecycle.removeObserver(lifecycleObserver)
         }
     }
@@ -144,17 +140,17 @@ fun SettingsScreen() {
             TargetSwitch(editingLock = editingLock, onChange = { editingLock = it })
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 item {
-                    SetupCard(prefs, prefsTick, resumed, onChanged = { prefsTick++ })
+                    SetupCard(prefsTick, resumed, onChanged = { prefsTick++ })
                 }
                 item {
                     ScreenSection(
-                            prefs = prefs,
+                            
                             editingLock = editingLock,
                             open = screenOpen,
                             animating = screenOpen && resumed,
                             onToggle = {
                                 screenOpen = !screenOpen
-                                prefs.edit().putBoolean("ui_open_screen", screenOpen).apply()
+                                MatrixDataStore.putBoolean("ui_open_screen", screenOpen)
                             },
                             onChanged = { prefsTick++ },
                             currentLayout = currentLayout,
@@ -163,12 +159,12 @@ fun SettingsScreen() {
                 }
                 item {
                     HudSection(
-                            prefs = prefs,
+                            
                             editingLock = editingLock,
                             open = hudOpen,
                             onToggle = {
                                 hudOpen = !hudOpen
-                                prefs.edit().putBoolean("ui_open_hud", hudOpen).apply()
+                                MatrixDataStore.putBoolean("ui_open_hud", hudOpen)
                             },
                             onChanged = { prefsTick++ },
                             snacks = snacks,
@@ -178,11 +174,11 @@ fun SettingsScreen() {
                 }
                 item {
                     RainSection(
-                            prefs = prefs,
+                            
                             open = rainOpen,
                             onToggle = {
                                 rainOpen = !rainOpen
-                                prefs.edit().putBoolean("ui_open_rain", rainOpen).apply()
+                                MatrixDataStore.putBoolean("ui_open_rain", rainOpen)
                             },
                             onChanged = { prefsTick++ },
                             snacks = snacks
@@ -231,7 +227,6 @@ private fun TargetSwitch(editingLock: Boolean, onChange: (Boolean) -> Unit) {
  */
 @Composable
 private fun SetupCard(
-        prefs: SharedPreferences,
         prefsTick: Int,
         resumed: Boolean,
         onChanged: () -> Unit
@@ -243,14 +238,14 @@ private fun SetupCard(
     // predates this tracking, or set via the system picker): assume the running
     // build is current instead of nagging once for no reason.
     LaunchedEffect(active, current) {
-        if (active && prefs.getInt("lastAppliedVersion", -1) == -1) {
-            prefs.edit().putInt("lastAppliedVersion", current).apply()
+        if (active && MatrixDataStore.getInt("lastAppliedVersion", -1) == -1) {
+            MatrixDataStore.putInt("lastAppliedVersion", current)
             onChanged()
         }
     }
-    val rawStored = prefs.getInt("lastAppliedVersion", -1)
+    val rawStored = MatrixDataStore.getInt("lastAppliedVersion", -1)
     val stored = if (active && rawStored == -1) current else rawStored
-    val dismissed = prefs.getInt("updatePromptDismissed", -1)
+    val dismissed = MatrixDataStore.getInt("updatePromptDismissed", -1)
 
     Column(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
         Text("SETUP", style = MaterialTheme.typography.titleMedium)
@@ -267,7 +262,7 @@ private fun SetupCard(
                             "Tap  > SET GHOST RAIN WALLPAPER  below, then choose BOTH.",
                     dismissLabel = "Later",
                     onDismiss = {
-                        prefs.edit().putInt("updatePromptDismissed", current).apply()
+                        MatrixDataStore.putInt("updatePromptDismissed", current)
                         onChanged()
                     }
             )
@@ -279,7 +274,7 @@ private fun SetupCard(
                     // system picker gives no completion signal, so a cancelled
                     // picker behaves like tapping "Later" (prompt suppressed
                     // until the next version bump).
-                    prefs.edit().putInt("lastAppliedVersion", currentVersionCode(context)).apply()
+                    MatrixDataStore.putInt("lastAppliedVersion", currentVersionCode(context))
                     setWallpaper(context)
                     onChanged()
                 },
@@ -359,7 +354,6 @@ private fun SectionHeader(
  */
 @Composable
 private fun ScreenSection(
-        prefs: SharedPreferences,
         editingLock: Boolean,
         open: Boolean,
         animating: Boolean,
@@ -379,13 +373,11 @@ private fun ScreenSection(
         Text("Editing screen: " + if (editingLock) "LOCK" else "HOME")
         Spacer(modifier = Modifier.height(8.dp))
         PreviewBridge(
-                prefs = prefs,
                 editingLock = editingLock,
                 animating = animating
         )
         Spacer(modifier = Modifier.height(8.dp))
         LayoutsRow(
-                prefs = prefs,
                 editingLock = editingLock,
                 onChanged = onChanged,
                 currentLayout = currentLayout,
@@ -411,7 +403,6 @@ private fun ScreenSection(
  */
 @Composable
 private fun HudSection(
-        prefs: SharedPreferences,
         editingLock: Boolean,
         open: Boolean,
         onToggle: () -> Unit,
@@ -442,9 +433,9 @@ private fun HudSection(
         ) {
             Text("Show HUD overlay", modifier = Modifier.weight(1f))
             Switch(
-                    checked = prefs.getBoolean(keyOf("hud"), true),
+                    checked = MatrixDataStore.getBoolean(keyOf("hud"), true),
                     onCheckedChange = {
-                        prefs.edit().putBoolean(keyOf("hud"), it).apply()
+                        MatrixDataStore.putBoolean(keyOf("hud"), it)
                         onChanged()
                     }
             )
@@ -453,10 +444,10 @@ private fun HudSection(
         Spacer(modifier = Modifier.height(4.dp))
         Text("Title text:")
         OutlinedTextField(
-                value = prefs.getString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
+                value = MatrixDataStore.getString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
                         ?: LAYOUT_TITLE_DEFAULT,
                 onValueChange = {
-                    prefs.edit().putString(keyOf("title"), it).apply()
+                    MatrixDataStore.putString(keyOf("title"), it)
                     onChanged()
                 },
                 singleLine = true,
@@ -465,41 +456,41 @@ private fun HudSection(
 
         HudSlider(
                 label = "Horizontal position",
-                value = prefs.getInt(keyOf("hudX"), 50),
+                value = MatrixDataStore.getInt(keyOf("hudX"), 50),
                 min = 0,
                 max = 100,
                 suffix = "%",
                 onValue = {
-                    prefs.edit().putInt(keyOf("hudX"), it).apply()
+                    MatrixDataStore.putInt(keyOf("hudX"), it)
                     onChanged()
                 }
         )
         HudSlider(
                 label = "Vertical position",
-                value = prefs.getInt(keyOf("hudPos"), 50),
+                value = MatrixDataStore.getInt(keyOf("hudPos"), 50),
                 min = 0,
                 max = 100,
                 suffix = "%",
                 onValue = {
-                    prefs.edit().putInt(keyOf("hudPos"), it).apply()
+                    MatrixDataStore.putInt(keyOf("hudPos"), it)
                     onChanged()
                 }
         )
         HudSlider(
                 label = "Size",
-                value = prefs.getInt(keyOf("hudScale"), 100),
+                value = MatrixDataStore.getInt(keyOf("hudScale"), 100),
                 min = 50,
                 max = 200,
                 suffix = "%",
                 onValue = {
-                    prefs.edit().putInt(keyOf("hudScale"), it).apply()
+                    MatrixDataStore.putInt(keyOf("hudScale"), it)
                     onChanged()
                 }
         )
 
         Spacer(modifier = Modifier.height(4.dp))
         Text("HUD elements (check = show, arrows = reorder):")
-        val order = HudPrefs.orderKeys(prefs.getString("order", HudPrefs.DEFAULT_ORDER))
+        val order = HudPrefs.orderKeys(MatrixDataStore.getString("order", HudPrefs.DEFAULT_ORDER))
         for ((idx, key) in order.withIndex()) {
             val elKey = keyOf("el_$key")
             ListItem(
@@ -507,21 +498,21 @@ private fun HudSection(
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Switch(
-                                    checked = prefs.getBoolean(elKey, true),
+                                    checked = MatrixDataStore.getBoolean(elKey, true),
                                     onCheckedChange = {
-                                        prefs.edit().putBoolean(elKey, it).apply()
+                                        MatrixDataStore.putBoolean(elKey, it)
                                         onChanged()
                                     }
                             )
                             IconButton(
-                                    onClick = { moveOrder(order, idx, -1, prefs, onChanged) },
+                                    onClick = { moveOrder(order, idx, -1, onChanged) },
                                     enabled = idx > 0,
                                     modifier = Modifier.semantics {
                                         contentDescription = "Move ${labelFor(key)} up"
                                     }
                             ) { Text("\u25B2") }
                             IconButton(
-                                    onClick = { moveOrder(order, idx, 1, prefs, onChanged) },
+                                    onClick = { moveOrder(order, idx, 1, onChanged) },
                                     enabled = idx < order.size - 1,
                                     modifier = Modifier.semantics {
                                         contentDescription = "Move ${labelFor(key)} down"
@@ -538,10 +529,10 @@ private fun HudSection(
         ) {
             Text("Redact IP on lock screen", modifier = Modifier.weight(1f))
             Switch(
-                    checked = prefs.getBoolean(keyOf("redactIp"), true),
+                    checked = MatrixDataStore.getBoolean(keyOf("redactIp"), true),
                     onCheckedChange = { checked ->
                         if (checked) {
-                            prefs.edit().putBoolean(keyOf("redactIp"), true).apply()
+                            MatrixDataStore.putBoolean(keyOf("redactIp"), true)
                             onChanged()
                         } else {
                             showRedactConfirm = true
@@ -562,9 +553,9 @@ private fun HudSection(
                 )
             }
             Switch(
-                    checked = prefs.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT),
+                    checked = MatrixDataStore.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT),
                     onCheckedChange = {
-                        prefs.edit().putBoolean(keyOf("hudDynamic"), it).apply()
+                        MatrixDataStore.putBoolean(keyOf("hudDynamic"), it)
                         onChanged()
                     }
             )
@@ -584,7 +575,7 @@ private fun HudSection(
                 confirmButton = {
                     TextButton(
                             onClick = {
-                                prefs.edit().putBoolean(keyOf("redactIp"), false).apply()
+                                MatrixDataStore.putBoolean(keyOf("redactIp"), false)
                                 showRedactConfirm = false
                                 onChanged()
                             }
@@ -611,15 +602,13 @@ private fun HudSection(
                 confirmButton = {
                     TextButton(
                             onClick = {
-                                val prev = snapshotHud(prefs, editingLock, currentLayout)
-                                val e = prefs.edit()
-                                for (k in LAYOUT_BOOLS) e.putBoolean(keyOf(k), true)
+                                val prev = snapshotHud(editingLock, currentLayout)
+                                for (k in LAYOUT_BOOLS) MatrixDataStore.putBoolean(keyOf(k), true)
                                 for (i in LAYOUT_INTS.indices) {
-                                    e.putInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
+                                    MatrixDataStore.putInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
                                 }
-                                e.putString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
-                                e.putBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
-                                e.apply()
+                                MatrixDataStore.putString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
+                                MatrixDataStore.putBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
                                 showReset = false
                                 onLayoutChange(null)
                                 onChanged()
@@ -628,7 +617,7 @@ private fun HudSection(
                                             "HUD reset to defaults",
                                             "Undo"
                                     ) == SnackbarResult.ActionPerformed) {
-                                        restoreHud(prefs, editingLock, prev)
+                                        restoreHud(editingLock, prev)
                                         onLayoutChange(prev.layoutName)
                                         onChanged()
                                     }
@@ -668,40 +657,35 @@ private val RAIN_PRESETS = arrayOf(
 /** Snapshot of all rain prefs, for Reset Undo. */
 private data class RainSnapshot(val ints: Map<String, Int>, val glyphs: Map<String, Boolean>)
 
-private fun snapshotRain(prefs: SharedPreferences): RainSnapshot {
+private fun snapshotRain(): RainSnapshot {
     val ints = LinkedHashMap<String, Int>()
-    for ((k, d) in RAIN_INT_DEFS) ints[k] = prefs.getInt(k, d)
+    for ((k, d) in RAIN_INT_DEFS) ints[k] = MatrixDataStore.getInt(k, d)
     val glyphs = LinkedHashMap<String, Boolean>()
-    for (k in RAIN_GLYPH_KEYS) glyphs[k] = prefs.getBoolean(k, true)
+    for (k in RAIN_GLYPH_KEYS) glyphs[k] = MatrixDataStore.getBoolean(k, true)
     return RainSnapshot(ints, glyphs)
 }
 
-private fun restoreRain(prefs: SharedPreferences, snap: RainSnapshot) {
-    val e = prefs.edit()
-    for ((k, v) in snap.ints) e.putInt(k, v)
-    for ((k, v) in snap.glyphs) e.putBoolean(k, v)
-    e.apply()
+private fun restoreRain(snap: RainSnapshot) {
+    for ((k, v) in snap.ints) MatrixDataStore.putInt(k, v)
+    for ((k, v) in snap.glyphs) MatrixDataStore.putBoolean(k, v)
 }
 
-private fun resetRain(prefs: SharedPreferences) {
-    val e = prefs.edit()
-    for ((k, d) in RAIN_INT_DEFS) e.putInt(k, d)
-    for (k in RAIN_GLYPH_KEYS) e.putBoolean(k, true)
-    e.apply()
+private fun resetRain() {
+    for ((k, d) in RAIN_INT_DEFS) MatrixDataStore.putInt(k, d)
+    for (k in RAIN_GLYPH_KEYS) MatrixDataStore.putBoolean(k, true)
 }
 
 /**
  * RAIN section: global (not per-screen) matrix-rain config. Collapsible via the
  * app-level `ui_open_rain` pref (collapsed by default, like the legacy
- * section). Slider/switch writes go straight to prefs; the listener in
- * [SettingsScreen] recomposes on any write, so [PreviewBridge] (which reads
- * [RainSettings.fromPrefs] every recomposition) reflects changes instantly —
- * including [HueBar] drags, which write `rainHue` to the
- * same prefs file directly.
+ * section). Slider/switch writes go straight to the [MatrixDataStore] snapshot;
+ * the listener in [SettingsScreen] recomposes on any write, so [PreviewBridge]
+ * (which reads [RainSettings.fromSnapshot] every recomposition) reflects
+ * changes instantly — including [HueBar] drags, which write `rainHue` to the
+ * same store directly.
  */
 @Composable
 private fun RainSection(
-        prefs: SharedPreferences,
         open: Boolean,
         onToggle: () -> Unit,
         onChanged: () -> Unit,
@@ -726,10 +710,8 @@ private fun RainSection(
             for ((name, hue, shimmer) in RAIN_PRESETS) {
                 Button(
                         onClick = {
-                            prefs.edit()
-                                    .putInt("rainHue", hue)
-                                    .putInt("shimmer", shimmer)
-                                    .apply()
+                            MatrixDataStore.putInt("rainHue", hue)
+                            MatrixDataStore.putInt("shimmer", shimmer)
                             onChanged()
                         },
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp)
@@ -739,34 +721,34 @@ private fun RainSection(
 
         HudSlider(
                 label = "Glyph shimmer (both screens)",
-                value = prefs.getInt("shimmer", 60),
+                value = MatrixDataStore.getInt("shimmer", 60),
                 min = 0,
                 max = 100,
                 suffix = "%",
                 onValue = {
-                    prefs.edit().putInt("shimmer", it).apply()
+                    MatrixDataStore.putInt("shimmer", it)
                     onChanged()
                 }
         )
         HudSlider(
                 label = "Rain speed",
-                value = prefs.getInt("rainSpeed", 100),
+                value = MatrixDataStore.getInt("rainSpeed", 100),
                 min = 10,
                 max = 300,
                 suffix = "%",
                 onValue = {
-                    prefs.edit().putInt("rainSpeed", it).apply()
+                    MatrixDataStore.putInt("rainSpeed", it)
                     onChanged()
                 }
         )
 
-        val hue = prefs.getInt("rainHue", 120)
+        val hue = MatrixDataStore.getInt("rainHue", 120)
         Spacer(modifier = Modifier.height(4.dp))
         Text("Rain color hue:  $hue\u00B0")
         HueBar(
                 hue = hue,
                 onHue = {
-                    prefs.edit().putInt("rainHue", it).apply()
+                    MatrixDataStore.putInt("rainHue", it)
                     onChanged()
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -774,45 +756,45 @@ private fun RainSection(
 
         HudSlider(
                 label = "Glyph font size",
-                value = prefs.getInt("rainFontSize", 100),
+                value = MatrixDataStore.getInt("rainFontSize", 100),
                 min = 50,
                 max = 200,
                 suffix = "%",
                 onValue = {
-                    prefs.edit().putInt("rainFontSize", it).apply()
+                    MatrixDataStore.putInt("rainFontSize", it)
                     onChanged()
                 }
         )
         HudSlider(
                 label = "Column min length",
-                value = prefs.getInt("rainMinLen", 6),
+                value = MatrixDataStore.getInt("rainMinLen", 6),
                 min = 1,
                 max = 50,
                 suffix = "",
                 onValue = {
-                    prefs.edit().putInt("rainMinLen", it).apply()
+                    MatrixDataStore.putInt("rainMinLen", it)
                     onChanged()
                 }
         )
         HudSlider(
                 label = "Column max length",
-                value = prefs.getInt("rainMaxLen", 32),
+                value = MatrixDataStore.getInt("rainMaxLen", 32),
                 min = 1,
                 max = 50,
                 suffix = "",
                 onValue = {
-                    prefs.edit().putInt("rainMaxLen", it).apply()
+                    MatrixDataStore.putInt("rainMaxLen", it)
                     onChanged()
                 }
         )
         HudSlider(
                 label = "Frame rate",
-                value = prefs.getInt("rainFps", 30),
+                value = MatrixDataStore.getInt("rainFps", 30),
                 min = 10,
                 max = 60,
                 suffix = " fps",
                 onValue = {
-                    prefs.edit().putInt("rainFps", it).apply()
+                    MatrixDataStore.putInt("rainFps", it)
                     onChanged()
                 }
         )
@@ -826,9 +808,9 @@ private fun RainSection(
             ) {
                 Text(glyphLabel(key), modifier = Modifier.weight(1f))
                 Switch(
-                        checked = prefs.getBoolean(key, true),
+                        checked = MatrixDataStore.getBoolean(key, true),
                         onCheckedChange = {
-                            prefs.edit().putBoolean(key, it).apply()
+                            MatrixDataStore.putBoolean(key, it)
                             onChanged()
                         }
                 )
@@ -849,8 +831,8 @@ private fun RainSection(
                 confirmButton = {
                     TextButton(
                             onClick = {
-                                val prev = snapshotRain(prefs)
-                                resetRain(prefs)
+                                val prev = snapshotRain()
+                                resetRain()
                                 showReset = false
                                 onChanged()
                                 scope.launch {
@@ -858,7 +840,7 @@ private fun RainSection(
                                             "Rain reset to defaults",
                                             "Undo"
                                     ) == SnackbarResult.ActionPerformed) {
-                                        restoreRain(prefs, prev)
+                                        restoreRain(prev)
                                         onChanged()
                                     }
                                 }
@@ -915,30 +897,27 @@ private data class HudSnapshot(
 )
 
 private fun snapshotHud(
-        prefs: SharedPreferences,
         editingLock: Boolean,
         currentLayout: String?
 ): HudSnapshot {
     fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
     val bools = LinkedHashMap<String, Boolean>()
-    for (k in LAYOUT_BOOLS) bools[k] = prefs.getBoolean(keyOf(k), true)
+    for (k in LAYOUT_BOOLS) bools[k] = MatrixDataStore.getBoolean(keyOf(k), true)
     val ints = LinkedHashMap<String, Int>()
     for (i in LAYOUT_INTS.indices) {
-        ints[LAYOUT_INTS[i]] = prefs.getInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
+        ints[LAYOUT_INTS[i]] = MatrixDataStore.getInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
     }
-    val title = prefs.getString(keyOf("title"), LAYOUT_TITLE_DEFAULT) ?: LAYOUT_TITLE_DEFAULT
-    val dynamic = prefs.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
+    val title = MatrixDataStore.getString(keyOf("title"), LAYOUT_TITLE_DEFAULT) ?: LAYOUT_TITLE_DEFAULT
+    val dynamic = MatrixDataStore.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
     return HudSnapshot(bools, ints, title, dynamic, currentLayout)
 }
 
-private fun restoreHud(prefs: SharedPreferences, editingLock: Boolean, snap: HudSnapshot) {
+private fun restoreHud(editingLock: Boolean, snap: HudSnapshot) {
     fun keyOf(base: String) = HudPrefs.keyOf(base, editingLock)
-    val e = prefs.edit()
-    for ((k, v) in snap.bools) e.putBoolean(keyOf(k), v)
-    for ((k, v) in snap.ints) e.putInt(keyOf(k), v)
-    e.putString(keyOf("title"), snap.title)
-    e.putBoolean(keyOf("hudDynamic"), snap.dynamic)
-    e.apply()
+    for ((k, v) in snap.bools) MatrixDataStore.putBoolean(keyOf(k), v)
+    for ((k, v) in snap.ints) MatrixDataStore.putInt(keyOf(k), v)
+    MatrixDataStore.putString(keyOf("title"), snap.title)
+    MatrixDataStore.putBoolean(keyOf("hudDynamic"), snap.dynamic)
 }
 
 /** Display label for an HUD element key (mirrors the legacy element rows). */
@@ -963,7 +942,6 @@ private fun moveOrder(
         order: List<String>,
         idx: Int,
         dir: Int,
-        prefs: SharedPreferences,
         onChanged: () -> Unit
 ) {
     val j = idx + dir
@@ -972,10 +950,10 @@ private fun moveOrder(
     val tmp = swapped[idx]
     swapped[idx] = swapped[j]
     swapped[j] = tmp
-    prefs.edit().putString(
+    MatrixDataStore.putString(
             "order",
-            HudPrefs.mergeOrderOnSave(swapped, prefs.getString("order", HudPrefs.DEFAULT_ORDER))
-    ).apply()
+            HudPrefs.mergeOrderOnSave(swapped, MatrixDataStore.getString("order", HudPrefs.DEFAULT_ORDER))
+    )
     onChanged()
 }
 
@@ -986,7 +964,6 @@ private fun moveOrder(
  */
 @Composable
 private fun LayoutsRow(
-        prefs: SharedPreferences,
         editingLock: Boolean,
         onChanged: () -> Unit,
         currentLayout: String?,
@@ -999,38 +976,36 @@ private fun LayoutsRow(
     var showDelete by remember { mutableStateOf(false) }
 
     fun loadLayouts(): List<LayoutSnapshot> =
-            LayoutsRepo.load(prefs.getString("layouts", "[]"))
+            LayoutsRepo.load(MatrixDataStore.getString("layouts", "[]"))
 
     fun applySnapshot(s: LayoutSnapshot) {
-        val e = prefs.edit()
-        for (k in LAYOUT_BOOLS) e.putBoolean(keyOf(k), s.bools[k] ?: true)
+        for (k in LAYOUT_BOOLS) MatrixDataStore.putBoolean(keyOf(k), s.bools[k] ?: true)
         for (i in LAYOUT_INTS.indices) {
-            e.putInt(keyOf(LAYOUT_INTS[i]), s.ints[LAYOUT_INTS[i]] ?: LAYOUT_INT_DEFS[i])
+            MatrixDataStore.putInt(keyOf(LAYOUT_INTS[i]), s.ints[LAYOUT_INTS[i]] ?: LAYOUT_INT_DEFS[i])
         }
-        e.putString(keyOf("title"), s.title.ifEmpty { LAYOUT_TITLE_DEFAULT })
-        e.putBoolean(keyOf("hudDynamic"), s.bools["hudDynamic"] ?: MatrixDataStore.HUD_DYNAMIC_DEFAULT)
-        e.apply()
+        MatrixDataStore.putString(keyOf("title"), s.title.ifEmpty { LAYOUT_TITLE_DEFAULT })
+        MatrixDataStore.putBoolean(keyOf("hudDynamic"), s.bools["hudDynamic"] ?: MatrixDataStore.HUD_DYNAMIC_DEFAULT)
         onChanged()
     }
 
     fun saveLayout(name: String) {
         try {
             val bools = LinkedHashMap<String, Boolean>()
-            for (k in LAYOUT_BOOLS) bools[k] = prefs.getBoolean(keyOf(k), true)
-            bools["hudDynamic"] = prefs.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
+            for (k in LAYOUT_BOOLS) bools[k] = MatrixDataStore.getBoolean(keyOf(k), true)
+            bools["hudDynamic"] = MatrixDataStore.getBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
             val ints = LinkedHashMap<String, Int>()
             for (i in LAYOUT_INTS.indices) {
-                ints[LAYOUT_INTS[i]] = prefs.getInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
+                ints[LAYOUT_INTS[i]] = MatrixDataStore.getInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
             }
             val snapshot = LayoutSnapshot(
                     name = name,
                     bools = bools,
                     ints = ints,
-                    title = prefs.getString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
+                    title = MatrixDataStore.getString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
                             ?: LAYOUT_TITLE_DEFAULT
             )
             val out = loadLayouts().filter { it.name != name } + snapshot
-            prefs.edit().putString("layouts", LayoutsRepo.serialize(out)).apply()
+            MatrixDataStore.putString("layouts", LayoutsRepo.serialize(out))
             onLayoutChange(name)
             onChanged()
             toast(context, "Saved \"$name\"")
@@ -1042,19 +1017,17 @@ private fun LayoutsRow(
     fun deleteLayout(name: String) {
         try {
             val out = loadLayouts().filter { it.name != name }
-            prefs.edit().putString("layouts", LayoutsRepo.serialize(out)).apply()
+            MatrixDataStore.putString("layouts", LayoutsRepo.serialize(out))
             if (name == currentLayout) onLayoutChange(null)
             onChanged()
         } catch (_: Exception) { }
     }
 
     fun newLayout() {
-        val e = prefs.edit()
-        for (k in LAYOUT_BOOLS) e.putBoolean(keyOf(k), true)
-        for (i in LAYOUT_INTS.indices) e.putInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
-        e.putString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
-        e.putBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
-        e.apply()
+        for (k in LAYOUT_BOOLS) MatrixDataStore.putBoolean(keyOf(k), true)
+        for (i in LAYOUT_INTS.indices) MatrixDataStore.putInt(keyOf(LAYOUT_INTS[i]), LAYOUT_INT_DEFS[i])
+        MatrixDataStore.putString(keyOf("title"), LAYOUT_TITLE_DEFAULT)
+        MatrixDataStore.putBoolean(keyOf("hudDynamic"), MatrixDataStore.HUD_DYNAMIC_DEFAULT)
         onLayoutChange(null)
         onChanged()
         toast(context, "New config for " + if (editingLock) "LOCK" else "HOME")
