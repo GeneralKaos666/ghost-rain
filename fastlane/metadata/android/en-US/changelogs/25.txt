@@ -1,0 +1,1 @@
+Ghost Rain 4.3.0: saved layouts now live inside the HUD screen — right above the overlay controls they snapshot — instead of the main menu, so save/load sits next to the settings it captures.

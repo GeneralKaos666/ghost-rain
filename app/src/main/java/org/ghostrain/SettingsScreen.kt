@@ -80,10 +80,10 @@ private const val SCREEN_RAIN = "rain"
  * Compose settings host: single config (no HOME/LOCK split), one screen at a
  * time — a main menu plus HUD / Rain detail screens.
  *
- * The main menu hosts the live [PreviewBridge] plus [LayoutsRow]; HUD and
- * Rain detail screens each repeat the preview at the top so tweaks give
- * instant feedback. Only one screen composes at a time, so only one
- * [RainPreview] frame loop runs.
+ * The main menu hosts the live [PreviewBridge]; HUD and Rain detail screens
+ * each repeat the preview at the top so tweaks give instant feedback. The HUD
+ * screen also hosts [LayoutsRow] (layouts snapshot HUD prefs). Only one
+ * screen composes at a time, so only one [RainPreview] frame loop runs.
  *
  * Restoration notes (legacy `SettingsActivity` behavior, kept verbatim):
  * - The SET button writes `lastAppliedVersion` optimistically before launching
@@ -199,9 +199,7 @@ fun SettingsScreen() {
                         prefsTick = prefsTick,
                         resumed = resumed,
                         onChanged = { prefsTick++ },
-                        onOpen = { screen = it },
-                        currentLayout = currentLayout,
-                        onLayoutChange = { currentLayout = it }
+                        onOpen = { screen = it }
                 )
             }
         }
@@ -219,15 +217,13 @@ private fun DetailScreen(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
-/** Main menu: status/setup, live preview + layouts, plus HUD/Rain entries. */
+/** Main menu: status/setup, live preview, plus HUD/Rain entries. */
 @Composable
 private fun MainScreen(
         prefsTick: Int,
         resumed: Boolean,
         onChanged: () -> Unit,
-        onOpen: (String) -> Unit,
-        currentLayout: String?,
-        onLayoutChange: (String?) -> Unit
+        onOpen: (String) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         SetupCard(prefsTick, resumed, onChanged = onChanged)
@@ -237,17 +233,6 @@ private fun MainScreen(
                 modifier = Modifier
         )
         Spacer(modifier = Modifier.height(8.dp))
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-            LayoutsRow(
-                    onChanged = onChanged,
-                    currentLayout = currentLayout,
-                    onLayoutChange = onLayoutChange
-            )
-            Text(
-                    "New = fresh config; Save as\u2026 = store it as a named layout.",
-                    style = MaterialTheme.typography.bodySmall
-            )
-        }
         NavRow(
                 title = "HUD",
                 subtitle = "Overlay, elements, position, color",
@@ -389,9 +374,10 @@ private fun DetailHeader(
 }
 
 /**
- * HUD screen: single overlay config (no HOME/LOCK split). Every key is the
- * base pref key — see [HudPrefs.keyOf]. Live [PreviewBridge] on top so
- * position/size/visibility tweaks give instant feedback.
+ * HUD screen: single overlay config (no HOME/LOCK split) plus named
+ * [LayoutsRow] snapshots. Every key is the base pref key — see
+ * [HudPrefs.keyOf]. Live [PreviewBridge] on top so position/size/visibility
+ * tweaks give instant feedback.
  */
 @Composable
 private fun HudSection(
@@ -419,6 +405,16 @@ private fun HudSection(
         )
         Spacer(modifier = Modifier.height(8.dp))
         Column(modifier = Modifier.padding(horizontal = 8.dp)) {
+        LayoutsRow(
+                onChanged = onChanged,
+                currentLayout = currentLayout,
+                onLayoutChange = onLayoutChange
+        )
+        Text(
+                "New = fresh config; Save as\u2026 = store it as a named layout.",
+                style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         DetailHeader(
                 title = "HUD",
                 resetDescription = "Reset HUD to defaults",
