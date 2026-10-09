@@ -20,3 +20,4 @@ workspace.json
 gradlew
 my-release-key.jks
 /.worktrees/
+kls_database.db
